@@ -28,8 +28,8 @@ COPY team-builder-source.json /usr/share/team-builder/hermes-source.json
 ENV PYTHONPATH=/opt/hermes HOME=/home/hermes HERMES_HOME=/home/hermes/.hermes \
     PATH=/opt/hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin \
     HERMES_DISABLE_LAZY_INSTALLS=1 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN groupadd --gid 10000 hermes \
-    && useradd --uid 10000 --gid 10000 --home-dir /home/hermes --create-home hermes \
+RUN /usr/sbin/groupadd --gid 10000 hermes \
+    && /usr/sbin/useradd --uid 10000 --gid 10000 --home-dir /home/hermes --create-home hermes \
     && mkdir -p /work && chown 10000:10000 /work /home/hermes \
     && buzz --help >/dev/null \
     && /opt/hermes/.venv/bin/python -c "import gateway; import plugins.platforms.buzz.adapter; import team_builder.server"
