@@ -105,6 +105,15 @@ before its result is saved, the upstream API cannot resolve that ambiguity by
 request ID: management reports an unknown outcome rather than minting duplicates.
 Inspect Buzz before authorizing another invite ID.
 
+## Upgrade an existing installation
+
+Install the new wheel in the VM's virtual environment, then run `team-builder upgrade`.
+The command updates the manager and running agents, preserving identities, workspaces,
+channels, and infrastructure volumes. It saves the previous Compose/config files under
+`STATE/upgrades/`. Use `--runtime-image` for an explicit runtime image; `init` continues
+to resume with saved image pins. An interrupted upgrade can be retried with the same
+image. If readiness fails, inspect manager logs before retrying.
+
 ## Operation and recovery
 
 State defaults to `~/.local/state/team-builder/default`. Use a different

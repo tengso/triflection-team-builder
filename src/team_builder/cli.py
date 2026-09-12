@@ -377,6 +377,16 @@ def parser():
         description="Bootstrap a Buzz community managed by Chief of Agents"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    upgrade = sub.add_parser(
+        "upgrade", help="Update the runtime while preserving community state"
+    )
+    upgrade.add_argument(
+        "--state-dir",
+        default=os.environ.get(
+            "TEAM_BUILDER_STATE_DIR", "~/.local/state/team-builder/default"
+        ),
+    )
+    upgrade.add_argument("--runtime-image", default=PUBLISHED_IMAGES["hermes"])
     credential = sub.add_parser(
         "credential", help="Store a named model provider credential"
     )
@@ -427,6 +437,11 @@ def parser():
 def main():
     args = parser().parse_args()
     try:
+        if args.command == "upgrade":
+            from .upgrade import upgrade
+
+            upgrade(args.state_dir, args.runtime_image)
+            return
         if args.command == "credential":
             from .credentials import store_credential
 

@@ -122,3 +122,23 @@ cleanup. Run the normal `init --non-interactive --state-dir ...` command to resu
 the test installation.
 The owner used for testing is a generated identity, separate from the user's Buzz
 identity. No key or provider credential is included in this repository.
+
+## 0.2.0 community management expansion
+
+The local regression suite passes 45 tests, including native project CRUD and
+repository references, human memberships/invite replay, credential secrecy and
+provider persistence, cross-channel approval rejection, COA/office lifecycle,
+and a state-preserving runtime upgrade.
+
+A disposable Linux Compose deployment on the Ubuntu VM passed fresh bootstrap,
+identity-preserving resume, and real relay validation of project create/update/
+delete, invitation minting, human membership changes, public/private channel
+changes, channel deletion, COA stop/start/archive, manager restart, and repeated
+signed requests. Its generated owner identity and installation were deleted after
+testing. Neither existing deployment was used for destructive test operations.
+
+Run the same expanded protocol test with `EXERCISE_MANAGEMENT=1` when invoking
+`tests/integration/bootstrap_images.py`. It only accepts the generated
+`Image Smoke Test` community. This verifies relay/gateway behavior; it does not
+make a paid model request or claim to validate new project workflows through a
+live language-model conversation.
