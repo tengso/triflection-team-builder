@@ -23,7 +23,8 @@ from .storage import private_write
 INFRA_IMAGES = {
     "postgres": "postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
     "redis": "redis@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
-    "minio": "minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+    "minio": "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+    "mc": "quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
 }
 PUBLISHED_IMAGES = json.loads(
     files("team_builder").joinpath("resources/images.json").read_text()
@@ -381,7 +382,7 @@ def parser():
         "state-dir": "~/.local/state/team-builder/default",
         "bind": "0.0.0.0",
         "provider": "openrouter",
-        "mc-image": "minio/mc:latest",
+        "mc-image": INFRA_IMAGES["mc"],
         "buzz-image": PUBLISHED_IMAGES["buzz"],
     }
     for name in (

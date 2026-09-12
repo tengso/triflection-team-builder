@@ -70,12 +70,11 @@ It posts test messages, uses the model provider, creates `smoke-dev` and
 for a second complete run after successful archival. An interrupted proposal can
 be resumed. Run only one harness against an installation at a time.
 
-## Compatible image inputs used
+## Earlier local image inputs
 
-These immutable image IDs are already available on the tested VM. They are local
-artifacts, not published registry addresses. Other hosts must supply their own
-compatible Buzz and Hermes images; this repository does not publish those upstream
-images.
+These immutable image IDs were used for the original VM validation below. They
+are local artifacts, not registry addresses. New installations use the published
+images documented in [../packaging/README.md](../packaging/README.md).
 
 | Input | Local image ID |
 | --- | --- |

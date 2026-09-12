@@ -7,6 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from team_builder.cli import INFRA_IMAGES
 from team_builder.nostr import key
 
 
@@ -16,11 +17,14 @@ def run(*command):
 
 def main():
     buzz, hermes = os.environ["BUZZ_IMAGE"], os.environ["HERMES_IMAGE"]
-    for image in (buzz, hermes):
+    for image in (*INFRA_IMAGES.values(), buzz, hermes):
         try:
             run("docker", "image", "inspect", image)
         except subprocess.CalledProcessError:
-            run("docker", "pull", image)
+            # Only public image references are used here; show registry errors so
+            # clean-host pull failures can be diagnosed without dumping state.
+            print("Pulling " + image, flush=True)
+            subprocess.run(["docker", "pull", image], check=True)
     run("docker", "run", "--rm", "--entrypoint", "buzz", buzz, "--help")
     run("docker", "run", "--rm", "--entrypoint", "buzz-admin", buzz, "--help")
     run(
