@@ -2,12 +2,26 @@
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
+
+
+def apply_source_patch(destination, patch):
+    # Without this ceiling git discovers the publisher checkout and silently
+    # skips paths outside the nested source directory's repository prefix.
+    environment = dict(os.environ, GIT_CEILING_DIRECTORIES=str(destination.parent))
+    for flags in (["--check"], []):
+        subprocess.run(
+            ["git", "apply", *flags, str(patch)],
+            cwd=destination,
+            env=environment,
+            check=True,
+        )
 
 
 def main():
@@ -37,10 +51,12 @@ def main():
             shutil.move(directories[0], destination)
         if name == "buzz":
             patch = root / "packaging/patches/buzz-external-community.patch"
-            subprocess.run(
-                ["git", "apply", "--check", str(patch)], cwd=destination, check=True
-            )
-            subprocess.run(["git", "apply", str(patch)], cwd=destination, check=True)
+            apply_source_patch(destination, patch)
+            if (
+                "pub community_name: Option<String>"
+                not in (destination / "crates/buzz-relay/src/config.rs").read_text()
+            ):
+                raise RuntimeError("Buzz compatibility patch was not applied")
             source["patch_sha256"] = hashlib.sha256(patch.read_bytes()).hexdigest()
         else:
             builder = destination / "team-builder"
