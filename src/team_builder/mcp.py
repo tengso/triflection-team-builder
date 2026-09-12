@@ -5,6 +5,8 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from .models import ManagementOperation
+
 
 def main():
     server = FastMCP("Buzz community management")
@@ -45,17 +47,36 @@ def main():
         )
 
     @server.tool()
-    def propose_changes(source_event_id: str, operations: list[dict]) -> dict:
-        """Post immutable operations for owner approval. Use for broad requests or any agent proposal."""
+    def propose_changes(
+        source_event_id: str, operations: list[ManagementOperation]
+    ) -> dict:
+        """Propose agents, channels, invitations, provider settings, or Buzz projects for owner approval.
+
+        Includes create_project, update_project and delete_project. Use for broad
+        requests or any agent proposal; operations are frozen for approval."""
         return call(
-            "/propose", {"source_event_id": source_event_id, "operations": operations}
+            "/propose",
+            {
+                "source_event_id": source_event_id,
+                "operations": [op.model_dump(exclude_none=True) for op in operations],
+            },
         )
 
     @server.tool()
-    def execute_direct(source_event_id: str, operations: list[dict]) -> dict:
-        """Execute a specific instruction from the human owner. Other authors are rejected."""
+    def execute_direct(
+        source_event_id: str, operations: list[ManagementOperation]
+    ) -> dict:
+        """Execute owner-authorized community changes, including create_project, update_project,
+        delete_project, agents, channels, invitations, and provider settings.
+
+        Project creation is an operation in this tool, not a separate MCP tool.
+        Other authors are rejected."""
         return call(
-            "/execute", {"source_event_id": source_event_id, "operations": operations}
+            "/execute",
+            {
+                "source_event_id": source_event_id,
+                "operations": [op.model_dump(exclude_none=True) for op in operations],
+            },
         )
 
     @server.tool()

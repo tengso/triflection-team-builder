@@ -113,26 +113,23 @@ class ConfigureProvider(Operation):
     base_url: Annotated[str, Field(max_length=2000)] | None = None
 
 
-Operations = TypeAdapter(
-    list[
-        Annotated[
-            CreateAgent
-            | UpdateAgent
-            | AgentState
-            | CreateChannel
-            | UpdateChannel
-            | Membership
-            | DeleteChannel
-            | HumanMembership
-            | Invite
-            | CreateProject
-            | UpdateProject
-            | DeleteProject
-            | ConfigureProvider,
-            Field(discriminator="action"),
-        ]
-    ]
-)
+ManagementOperation = Annotated[
+    CreateAgent
+    | UpdateAgent
+    | AgentState
+    | CreateChannel
+    | UpdateChannel
+    | Membership
+    | DeleteChannel
+    | HumanMembership
+    | Invite
+    | CreateProject
+    | UpdateProject
+    | DeleteProject
+    | ConfigureProvider,
+    Field(discriminator="action"),
+]
+Operations = TypeAdapter(list[ManagementOperation])
 
 
 def validate(operations):
