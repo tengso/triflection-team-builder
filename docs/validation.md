@@ -87,6 +87,12 @@ deployment stayed healthy. Publication checks use a dummy provider credential;
 they make no model calls. The live conversational validation recorded above was a
 separate test.
 
+The final installer wheel was also tested on Ubuntu with no image override flags.
+Its pinned default images passed fresh bootstrap and setup recovery. Anonymous
+Docker pulls succeeded for both released digests, and the `0.1.0` registry tags
+were independently checked against the CI manifest. The wheel's packaged source
+and resource files were compared byte-for-byte with the release checkout.
+
 The installer pins the released Buzz and Hermes digests. The supporting MinIO
 server and client use digest-pinned official Quay images because their Docker Hub
 references rejected anonymous pulls; both Quay digests match the earlier VM inputs.
