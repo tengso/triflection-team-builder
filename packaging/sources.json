@@ -1,0 +1,10 @@
+{
+  "buzz": {
+    "repository": "block/buzz",
+    "revision": "c045321a7fb3ca8939f28519ce7a555a6f597728"
+  },
+  "hermes": {
+    "repository": "NousResearch/hermes-agent",
+    "revision": "d0df324862cb2244a40789a5ca45392165f1b950"
+  }
+}

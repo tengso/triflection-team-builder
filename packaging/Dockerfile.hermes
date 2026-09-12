@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+ARG BUZZ_IMAGE
+ARG UBUNTU_IMAGE=ubuntu@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+FROM ${BUZZ_IMAGE} AS buzz
+FROM ${UBUNTU_IMAGE}
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/tengso/triflection-team-builder" \
+    org.opencontainers.image.revision=$SOURCE_REVISION \
+    org.opencontainers.image.description="Hermes and the Triflection Team Builder management runtime" \
+    org.opencontainers.image.licenses="MIT AND Apache-2.0" \
+    io.team-builder.runtime="1"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-dev build-essential ca-certificates libssl3t64 git curl ripgrep \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/uv \
+    && /opt/uv/bin/pip install --no-cache-dir uv==0.10.0
+WORKDIR /opt/hermes
+COPY . /opt/hermes/
+ENV UV_PROJECT_ENVIRONMENT=/opt/hermes/.venv UV_PYTHON_DOWNLOADS=never
+RUN /opt/uv/bin/uv sync --frozen --no-dev --python /usr/bin/python3 \
+    && /opt/uv/bin/uv pip install --python /opt/hermes/.venv/bin/python /opt/hermes/team-builder \
+    && /opt/uv/bin/uv pip check --python /opt/hermes/.venv/bin/python \
+    && /opt/hermes/.venv/bin/python /opt/hermes/team-builder/src/team_builder/resources/patch_hermes.py
+COPY --from=buzz /usr/local/bin/buzz /usr/local/bin/buzz
+COPY --from=buzz /usr/share/licenses/buzz/ /usr/share/licenses/buzz/
+COPY LICENSE* /usr/share/licenses/hermes/
+COPY team-builder-source.json /usr/share/team-builder/hermes-source.json
+ENV PYTHONPATH=/opt/hermes HOME=/home/hermes HERMES_HOME=/home/hermes/.hermes \
+    PATH=/opt/hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin \
+    HERMES_DISABLE_LAZY_INSTALLS=1 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN groupadd --gid 10000 hermes \
+    && useradd --uid 10000 --gid 10000 --home-dir /home/hermes --create-home hermes \
+    && mkdir -p /work && chown 10000:10000 /work /home/hermes \
+    && buzz --help >/dev/null \
+    && /opt/hermes/.venv/bin/python -c "import gateway; import plugins.platforms.buzz.adapter; import team_builder.server"
+USER 10000:10000
+WORKDIR /work
+ENTRYPOINT ["/opt/hermes/.venv/bin/team-builder-worker"]

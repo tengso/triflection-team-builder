@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.team-builder/
+.env
+.image-build/
+# Preserve local historical repair material without publishing deployment details.
+vm-repair/

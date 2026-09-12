@@ -1,0 +1,4 @@
+{
+  "buzz": "ghcr.io/tengso/triflection-team-builder/buzz:0.1.0",
+  "hermes": "ghcr.io/tengso/triflection-team-builder/hermes:0.1.0"
+}

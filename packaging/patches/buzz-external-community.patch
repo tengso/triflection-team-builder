@@ -1,0 +1,198 @@
+diff --git a/crates/buzz-relay/src/api/git/transport.rs b/crates/buzz-relay/src/api/git/transport.rs
+index 638e3c715..381a7f665 100644
+--- a/crates/buzz-relay/src/api/git/transport.rs
++++ b/crates/buzz-relay/src/api/git/transport.rs
+@@ -2112,6 +2112,13 @@ async fn finalize_push_inner(
+ ///
+ /// Mounted at `/git/{owner}/{repo}/...` with a configurable max pack size.
+ pub fn git_router(state: Arc<AppState>) -> Router {
++    if state.config.external_repos_only {
++        async fn disabled() -> impl IntoResponse {
++            (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({"error": "external_git_hosting_disabled"})))
++        }
++        return Router::new().route("/git/{*path}", axum::routing::any(disabled));
++    }
++
+     let body_limit = state.config.git_max_pack_bytes as usize;
+ 
+     Router::new()
+diff --git a/crates/buzz-relay/src/config.rs b/crates/buzz-relay/src/config.rs
+index e035752ec..a4a1b4f15 100644
+--- a/crates/buzz-relay/src/config.rs
++++ b/crates/buzz-relay/src/config.rs
+@@ -116,6 +116,9 @@ pub const MAX_DRAIN_JITTER_MS: u64 = 20_000;
+ /// Relay runtime configuration, loaded from environment variables.
+ #[derive(Debug, Clone)]
+ pub struct Config {
++    pub community_name: Option<String>,
++    pub community_description: Option<String>,
++    pub external_repos_only: bool,
+     /// Address the relay HTTP/WebSocket server binds to.
+     pub bind_addr: SocketAddr,
+     /// Postgres database connection URL.
+@@ -1200,7 +1203,18 @@ impl Config {
+             ));
+         }
+ 
++        let community_name = std::env::var("BUZZ_COMMUNITY_NAME").ok();
++        let community_description = std::env::var("BUZZ_COMMUNITY_DESCRIPTION").ok();
++        let external_repos_only = match std::env::var("BUZZ_EXTERNAL_REPOS_ONLY").as_deref() {
++            Ok("true") => true, Ok("false") | Err(std::env::VarError::NotPresent) => false,
++            _ => return Err(ConfigError::InvalidValue("BUZZ_EXTERNAL_REPOS_ONLY must be true or false".into())),
++        };
++        if community_name.as_ref().is_some_and(|n| n.is_empty()) ||
++            (external_repos_only && community_name.is_none()) {
++            return Err(ConfigError::InvalidValue("BUZZ_COMMUNITY_NAME must be nonempty in external-only mode".into()));
++        }
+         Ok(Self {
++            community_name, community_description, external_repos_only,
+             bind_addr,
+             database_url,
+             read_database_url,
+diff --git a/crates/buzz-relay/src/handlers/ingest.rs b/crates/buzz-relay/src/handlers/ingest.rs
+index ee1d0312b..5665f2daa 100644
+--- a/crates/buzz-relay/src/handlers/ingest.rs
++++ b/crates/buzz-relay/src/handlers/ingest.rs
+@@ -2801,6 +2801,30 @@ async fn ingest_event_inner(
+             .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
+     }
+ 
++    if kind_u32 == KIND_GIT_REPO_ANNOUNCEMENT {
++        let repo_tags: Vec<Vec<String>> = event.tags.iter().map(|t| t.as_slice().to_vec()).collect();
++        let external = validate_external_repository_tags(&repo_tags, state.config.external_repos_only)
++            .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
++        let d = event.tags.iter().find(|t| t.kind().to_string() == "d").and_then(|t| t.content());
++        if let Some(d) = d {
++            let query = buzz_db::EventQuery {
++                kinds: Some(vec![30617]), pubkey: Some(event.pubkey.to_bytes().to_vec()),
++                d_tag: Some(d.to_owned()), global_only: true, limit: Some(1),
++                ..buzz_db::EventQuery::for_community(tenant.community())
++            };
++            let heads = state.db.query_events(&query).await
++                .map_err(|_| IngestError::Internal("external repository head lookup failed".into()))?;
++            if let Some(head) = heads.first() {
++                let previous: Vec<Vec<String>> = head.event.tags.iter().map(|t| t.as_slice().to_vec()).collect();
++                let was_external = validate_external_repository_tags(&previous, false)
++                    .map_err(|e| IngestError::Rejected(format!("invalid previous repository: {e}")))?;
++                if external != was_external {
++                    return Err(IngestError::Rejected("restricted: hosted/external repository conversion unsupported".into()));
++                }
++            }
++        }
++    }
++
+     // Track pre-created channel UUID for compensation on insert failure.
+     let mut pre_created_channel: Option<Uuid> = None;
+ 
+@@ -5538,3 +5562,61 @@ mod postgres_tests {
+         );
+     }
+ }
++
++/// Builder external-only metadata validation. Called before event storage.
++pub(crate) fn validate_external_repository_tags(
++    tags: &[Vec<String>], required: bool,
++) -> Result<bool, &'static str> {
++    let values = |name: &str| -> Vec<&Vec<String>> {
++        tags.iter().filter(|t| t.first().map(String::as_str) == Some(name)).collect()
++    };
++    let markers = values("buzz-hosting");
++    if markers.is_empty() {
++        return if required { Err("external repository marker required") } else { Ok(false) };
++    }
++    if markers.len() != 1 || markers[0].len() != 2 || markers[0][1] != "external" {
++        return Err("invalid or duplicate external repository marker");
++    }
++    let clones = values("clone");
++    let webs = values("web");
++    if clones.len() != 1 || clones[0].len() != 2 || webs.len() != 1 || webs[0].len() != 2 {
++        return Err("exactly one clone and web URL required");
++    }
++    let clone = &clones[0][1];
++    let web = clone.strip_suffix(".git").ok_or("clone URL must end in .git")?;
++    if webs[0][1] != web { return Err("clone and web URLs differ"); }
++    let path = web.strip_prefix("https://github.com/").ok_or("GitHub HTTPS URL required")?;
++    let parts: Vec<&str> = path.split('/').collect();
++    if parts.len() != 2 || parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".."
++        || !p.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))) {
++        return Err("invalid GitHub path or credential-bearing URL");
++    }
++    Ok(true)
++}
++
++#[cfg(test)]
++mod builder_external_tests {
++    use super::validate_external_repository_tags as validate;
++    fn tags() -> Vec<Vec<String>> {
++        vec![vec!["buzz-hosting", "external"], vec!["clone", "https://github.com/owner/repo.git"],
++             vec!["web", "https://github.com/owner/repo"]]
++            .into_iter().map(|t| t.into_iter().map(str::to_owned).collect()).collect()
++    }
++    #[test]
++    fn explicit_external_validates_and_stock_default_is_unchanged() {
++        assert_eq!(validate(&tags(), true), Ok(true));
++        assert_eq!(validate(&[], false), Ok(false));
++        assert!(validate(&[], true).is_err());
++    }
++    #[test]
++    fn malformed_markers_and_credentials_are_rejected() {
++        let mut duplicate = tags(); duplicate.push(duplicate[0].clone());
++        assert!(validate(&duplicate, true).is_err());
++        for bad in ["https://token@github.com/owner/repo.git", "https://github.com.evil/owner/repo.git",
++                    "http://github.com/owner/repo.git", "https://github.com/owner/repo.git?token=x",
++                    "https://github.com/owner/../repo.git"] {
++            let mut t = tags(); t[1][1] = bad.into();
++            assert!(validate(&t, true).is_err());
++        }
++    }
++}
+diff --git a/crates/buzz-relay/src/handlers/side_effects.rs b/crates/buzz-relay/src/handlers/side_effects.rs
+index 7282c9134..f3e9e65ff 100644
+--- a/crates/buzz-relay/src/handlers/side_effects.rs
++++ b/crates/buzz-relay/src/handlers/side_effects.rs
+@@ -2563,6 +2563,12 @@ pub(crate) async fn handle_git_repo_announcement_inner(
+ ) -> anyhow::Result<()> {
+     #[cfg(not(test))]
+     let _ = hooks;
++    let tags: Vec<Vec<String>> = event.tags.iter().map(|t| t.as_slice().to_vec()).collect();
++    if super::ingest::validate_external_repository_tags(&tags, state.config.external_repos_only)
++        .map_err(anyhow::Error::msg)? {
++        // Signed metadata was already stored; no hosted names, quotas, manifests or subprocesses.
++        return Ok(());
++    }
+     // Extract repo identifier from d tag (required for NIP-33 parameterized replaceable events).
+     let repo_id =
+         extract_tag_value(event, "d").ok_or_else(|| anyhow::anyhow!("kind:30617 missing d tag"))?;
+diff --git a/crates/buzz-relay/src/nip11.rs b/crates/buzz-relay/src/nip11.rs
+index e6b18cdd0..278f858b2 100644
+--- a/crates/buzz-relay/src/nip11.rs
++++ b/crates/buzz-relay/src/nip11.rs
+@@ -23,6 +23,8 @@ pub(crate) const NIP_RELAY_MEMBERSHIP: u32 = 43;
+ /// Relay information document served at `GET /` with `Accept: application/nostr+json`.
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct RelayInfo {
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub builder: Option<serde_json::Value>,
+     /// Human-readable relay name.
+     pub name: String,
+     /// Human-readable relay description.
+@@ -200,6 +202,7 @@ impl RelayInfo {
+         });
+ 
+         Self {
++            builder: None,
+             name: "Buzz Relay".to_string(),
+             description: "Buzz — private team communication relay".to_string(),
+             icon: icon.filter(|s| !s.is_empty()).map(|s| s.to_string()),
+@@ -293,6 +296,11 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
+         admin_api.as_deref(),
+         state.config.klipy.as_ref().map(|_| "klipy"),
+     );
++    if let Some(name) = &state.config.community_name { info.name = name.clone(); }
++    if let Some(description) = &state.config.community_description { info.description = description.clone(); }
++    if state.config.external_repos_only {
++        info.builder = Some(serde_json::json!({"schema_version": 1, "display_metadata": true, "external_repos_only": true}));
++    }
+     let tenant_host = if state.config.push_enabled {
+         crate::tenant::bind_community(&state.db, raw_host)
+             .await

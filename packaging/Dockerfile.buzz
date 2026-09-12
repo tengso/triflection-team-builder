@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+ARG UBUNTU_IMAGE=ubuntu@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+FROM ${UBUNTU_IMAGE} AS compile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential pkg-config libssl-dev ca-certificates curl git cmake clang protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.95.0
+WORKDIR /build
+COPY . .
+ENV SQLX_OFFLINE=true CARGO_BUILD_JOBS=3 CARGO_PROFILE_RELEASE_DEBUG=0 \
+    CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+RUN --mount=type=cache,target=/opt/cargo/registry \
+    --mount=type=cache,target=/opt/cargo/git \
+    --mount=type=cache,target=/build/target \
+    cargo build --release --locked -p buzz-cli --bin buzz -p buzz-relay --bin buzz-relay -p buzz-admin --bin buzz-admin \
+    && mkdir /binaries && cp target/release/buzz target/release/buzz-relay target/release/buzz-admin /binaries/
+
+FROM ${UBUNTU_IMAGE}
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/tengso/triflection-team-builder" \
+    org.opencontainers.image.revision=$SOURCE_REVISION \
+    org.opencontainers.image.description="Buzz relay and CLI for Triflection Team Builder" \
+    org.opencontainers.image.licenses="Apache-2.0"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libssl3t64 libgcc-s1 git bash curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data/git && chown 1000:1000 /data/git
+COPY --from=compile /binaries/ /usr/local/bin/
+COPY LICENSE* /usr/share/licenses/buzz/
+COPY team-builder-source.json /usr/share/team-builder/buzz-source.json
+RUN buzz --help >/dev/null && buzz-admin --help >/dev/null \
+    && ! ldd /usr/local/bin/buzz-relay | grep 'not found'
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/buzz-relay"]
