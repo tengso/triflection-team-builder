@@ -377,6 +377,17 @@ def parser():
         description="Bootstrap a Buzz community managed by Chief of Agents"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    credential = sub.add_parser(
+        "credential", help="Store a named model provider credential"
+    )
+    credential.add_argument("id")
+    credential.add_argument(
+        "--state-dir",
+        default=os.environ.get(
+            "TEAM_BUILDER_STATE_DIR", "~/.local/state/team-builder/default"
+        ),
+    )
+    credential.add_argument("--key-file")
     command = sub.add_parser("init")
     defaults = {
         "state-dir": "~/.local/state/team-builder/default",
@@ -416,6 +427,24 @@ def parser():
 def main():
     args = parser().parse_args()
     try:
+        if args.command == "credential":
+            from .credentials import store_credential
+
+            root = Path(args.state_dir).expanduser().resolve()
+            if not (root / "config.json").is_file():
+                raise ValueError(
+                    "Initialize this installation before adding credentials"
+                )
+            api_key = (
+                Path(args.key_file).read_text().strip()
+                if args.key_file
+                else getpass.getpass("Model provider API key: ").strip()
+            )
+            store_credential(root, args.id, api_key)
+            print(
+                f"Credential {args.id} stored. Ask COA to configure the provider using this name."
+            )
+            return
         if args.hermes_image and args.runtime_image:
             raise ValueError(
                 "Choose either --runtime-image or --hermes-image, not both"

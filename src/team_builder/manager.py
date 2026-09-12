@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import RLock
 
 from .buzz import Buzz, policy
+from .community import configure_provider, invite, project
 from .docker import Docker
 from .models import validate
 from .nostr import attestation, key, public, reply_tags, sign, tags, wire
@@ -27,6 +28,30 @@ class Manager:
         )
         self.docker = docker or Docker(self.config["project"])
         self.lock = RLock()
+        self.load_provider()
+
+    def load_provider(self):
+        path = self.root / "provider.json"
+        if path.exists():
+            override = json.loads(path.read_text())
+            self.config.update(
+                {k: override[k] for k in ("provider", "model", "base_url")}
+            )
+            self.secrets["provider_key"] = override["provider_key"]
+
+    def store_provider_credential(self, source_event_id, id, api_key):
+        from .credentials import store_credential
+
+        self.source(source_event_id, owner=True, cache=False)
+        if not isinstance(api_key, str) or not 1 <= len(api_key) <= 16384:
+            raise ValueError("Invalid credential")
+        digest = hashlib.sha256(api_key.encode()).hexdigest()
+        self.registry.bind(
+            source_event_id,
+            [{"action": "store_provider_credential", "id": id, "sha256": digest}],
+        )
+        store_credential(self.root, id, api_key)
+        return {"credential": id, "stored": True}
 
     def actor(self, secret, auth_tag=None):
         return Buzz(
@@ -98,9 +123,9 @@ class Manager:
 
     def channel(self, operation):
         identifier = operation["id"]
-        if identifier == "office" and operation["action"] == "update_channel":
-            raise ValueError("Office Of COA is protected")
         existing = self.registry.get("channel/" + identifier)
+        if existing and existing.get("state") == "deleted":
+            raise ValueError("Channel was deleted; choose a new ID")
         if operation["action"] == "update_channel" and not existing:
             raise ValueError("Channel does not exist")
         if (
@@ -119,6 +144,7 @@ class Manager:
             if existing
             else str(uuid.uuid5(uuid.UUID(self.config["id"]), "channel/" + identifier)),
         }
+        channel["state"] = "provisioning"
         self.registry.put("channel/" + identifier, "channel", channel)
         observed = self.buzz.channel(channel["uuid"])
         if not observed:
@@ -135,8 +161,11 @@ class Manager:
                     ["channel_type", "stream"],
                 ],
             )
-        elif observed["name"] != [[channel["name"]]] or observed["about"] != (
-            [[channel["description"]]] if channel["description"] else []
+        elif (
+            observed["private"] != (channel["visibility"] == "private")
+            or observed["name"] != [[channel["name"]]]
+            or observed["about"]
+            != ([[channel["description"]]] if channel["description"] else [])
         ):
             head = self.buzz.head(39000, self.config["relay"], channel["uuid"])
             self.buzz.event(
@@ -145,15 +174,22 @@ class Manager:
                     ["h", channel["uuid"]],
                     ["name", channel["name"]],
                     ["about", channel["description"]],
+                    [
+                        "visibility",
+                        "private" if channel["visibility"] == "private" else "open",
+                    ],
                 ],
                 head=head,
             )
-        self.membership(channel["uuid"], self.config["owner"], "owner")
+        if operation["action"] == "create_channel":
+            self.membership(channel["uuid"], self.config["owner"], "owner")
         actual = self.buzz.channel(channel["uuid"])
         if actual["name"] != [[channel["name"]]] or actual["private"] != (
             channel["visibility"] == "private"
         ):
             raise RuntimeError("Channel metadata failed readback")
+        channel["state"] = "active"
+        self.registry.put("channel/" + identifier, "channel", channel)
         return {"id": identifier, "uuid": channel["uuid"], "name": channel["name"]}
 
     def launch(self, agent):
@@ -166,15 +202,53 @@ class Manager:
 
     def apply(self, op):
         action = op["action"]
+        if action in ("create_project", "update_project", "delete_project"):
+            return project(self, op)
+        if action == "create_invite":
+            return invite(self, op)
+        if action == "configure_provider":
+            return configure_provider(self, op)
+        if action in ("add_human_member", "remove_human_member"):
+            channel = self.resource(op["channel"], "channel")
+            if channel.get("state") == "deleted":
+                raise ValueError("Channel is deleted")
+            if any(a["pubkey"] == op["pubkey"] for a in self.registry.list("agent")):
+                raise ValueError("Use agent membership operations for managed agents")
+            remove = action == "remove_human_member"
+            if not remove and op["pubkey"] not in self.buzz.roster():
+                self.ensure_member(op["pubkey"])
+            self.membership(channel["uuid"], op["pubkey"], op["role"], remove)
+            return {"channel": op["channel"], "pubkey": op["pubkey"], "removed": remove}
+        if action == "delete_channel":
+            channel = self.resource(op["id"], "channel")
+            if self.buzz.channel(channel["uuid"]):
+                self.buzz.event(9008, [["h", channel["uuid"]]])
+            if self.buzz.channel(channel["uuid"]):
+                raise RuntimeError("Channel deletion failed authoritative readback")
+            channel["state"] = "deleted"
+            self.registry.put("channel/" + op["id"], "channel", channel)
+            for agent in self.registry.list("agent"):
+                if channel["uuid"] in agent["channel_ids"]:
+                    agent["channel_ids"].remove(channel["uuid"])
+                    if agent["state"] == "running":
+                        if agent["channel_ids"]:
+                            self.launch(agent)
+                        else:
+                            self.docker.stop(self.name(agent))
+                            agent["state"] = "stopped"
+                            self.save_agent(agent)
+                    self.save_agent(agent)
+            return {"id": op["id"], "state": "deleted"}
         if action in ("create_channel", "update_channel"):
             return self.channel(op)
         if action in ("add_member", "remove_member"):
-            if op["agent"] == "coa":
-                raise ValueError("COA's office membership is protected")
             agent = self.resource(op["agent"], "agent")
             if agent["state"] == "archived":
                 raise ValueError("Archived agents cannot join channels")
-            channel = self.resource(op["channel"], "channel")["uuid"]
+            channel_item = self.resource(op["channel"], "channel")
+            if channel_item.get("state") == "deleted":
+                raise ValueError("Channel is deleted")
+            channel = channel_item["uuid"]
             remove = action == "remove_member"
             self.membership(channel, agent["pubkey"], remove=remove)
             ids = set(agent["channel_ids"])
@@ -188,8 +262,6 @@ class Manager:
             elif agent["state"] == "running":
                 self.launch(agent)
             return {"id": agent["id"], "channels": agent["channel_ids"]}
-        if op["id"] == "coa":
-            raise ValueError("COA is protected; use host-level maintenance")
         agent = self.registry.get("agent/" + op["id"])
         if action == "create_agent":
             fingerprint = hashlib.sha256(wire(op)).hexdigest()
@@ -198,6 +270,13 @@ class Manager:
                     "Agent ID already exists with a different specification"
                 )
             if not agent:
+                if self.resource("coa", "agent")["state"] == "archived":
+                    raise ValueError("Cannot provision agents owned by an archived COA")
+                if any(
+                    self.resource(c, "channel").get("state") == "deleted"
+                    for c in op["channels"]
+                ):
+                    raise ValueError("Cannot use a deleted channel")
                 secret = key()
                 agent = {
                     **op,
@@ -239,14 +318,22 @@ class Manager:
             elif action == "start_agent":
                 self.launch(agent)
             elif action == "stop_agent":
-                self.docker.stop(self.name(agent))
                 agent["state"] = "stopped"
                 self.save_agent(agent)
+                self.docker.stop(self.name(agent))
             elif action == "archive_agent":
+                if agent["state"] != "archived":
+                    agent["state"] = "archiving"
+                    self.save_agent(agent)
                 self.docker.stop(self.name(agent))
                 for channel in self.registry.list("channel"):
-                    self.membership(channel["uuid"], agent["pubkey"], remove=True)
-                owner = self.actor(self.secrets["coa"], self.config["coa_auth"])
+                    if channel.get("state") != "deleted":
+                        self.membership(channel["uuid"], agent["pubkey"], remove=True)
+                owner = (
+                    self.buzz
+                    if agent["id"] == "coa"
+                    else self.actor(self.secrets["coa"], self.config["coa_auth"])
+                )
                 if agent["state"] != "archived":
                     owner.event(
                         9035,
@@ -263,24 +350,37 @@ class Manager:
                 self.save_agent(agent)
         return {"id": agent["id"], "pubkey": agent["pubkey"], "state": agent["state"]}
 
-    def source(self, identifier, owner=False):
-        event = self.buzz.message(identifier)
-        if event["kind"] != 9 or tags(event, "h") != [[self.config["office"]]]:
-            raise ValueError("Authorization must be a message in Office Of COA")
+    def source(self, identifier, owner=False, cache=True):
+        known = self.registry.db.execute(
+            "SELECT 1 FROM authorizations WHERE event=?", (identifier,)
+        ).fetchone()
+        cached = self.registry.get("source/" + identifier) if known else None
+        event = cached or self.buzz.message(identifier)
+        channel_tags = tags(event, "h")
+        channels = {c["uuid"]: c for c in self.registry.list("channel")}
+        if (
+            event["kind"] != 9
+            or len(channel_tags) != 1
+            or len(channel_tags[0]) != 1
+            or channel_tags[0][0] not in channels
+        ):
+            raise ValueError(
+                "Authorization must be a message in Office Of COA or another managed channel"
+            )
         if owner and event["pubkey"] != self.config["owner"]:
             raise ValueError("Only the human owner can authorize changes")
-        if abs(time.time() - event["created_at"]) > 86400:
-            # Bound requests remain retryable across outages; unseen old messages cannot authorize new work.
-            known = self.registry.db.execute(
-                "SELECT 1 FROM authorizations WHERE event=?", (identifier,)
-            ).fetchone()
-            if not known:
+        if not known:
+            if abs(time.time() - event["created_at"]) > 86400:
                 raise ValueError(
                     "Request is older than 24 hours; ask the owner to repeat it"
                 )
-        members = self.buzz.channel(self.config["office"])["roles"]
-        if event["pubkey"] not in members:
-            raise ValueError("Requester is no longer a member of Office Of COA")
+            channel = self.buzz.channel(channel_tags[0][0])
+            if not channel or event["pubkey"] not in channel["roles"]:
+                raise ValueError(
+                    "Requester is no longer a member of the source channel"
+                )
+        if cache:
+            self.registry.put("source/" + identifier, "source", event)
         return event
 
     def propose(self, source_event_id, operations):
@@ -301,7 +401,7 @@ class Manager:
             event = sign(
                 self.secrets["coa"],
                 9,
-                [["h", self.config["office"]], *reply_tags(source)],
+                [["h", tags(source, "h")[0][0]], *reply_tags(source)],
                 text,
             )
             with self.registry.db:
@@ -369,6 +469,8 @@ class Manager:
         if not row or (proposal_id is not None and row["id"] != proposal_id):
             raise ValueError("Owner must reply 'approve' directly to this proposal")
         proposal = json.loads(row["event"])
+        if tags(approval, "h") != tags(proposal, "h"):
+            raise ValueError("Approval must be in the proposal channel")
         if approval["created_at"] < proposal["created_at"]:
             raise ValueError("Approval predates proposal")
         return self.execute(approval_event_id, json.loads(row["body"]), proposal=True)
@@ -383,21 +485,40 @@ class Manager:
                 }
             )
             agents[-1]["gateway_ready"] = self.docker.ready(self.name(agent))
-        return {"agents": agents, "channels": self.registry.list("channel")}
+        return {
+            "agents": agents,
+            "channels": self.registry.list("channel"),
+            "projects": self.inspect_projects(),
+            "provider": {
+                k: self.config.get(k) for k in ("provider", "model", "base_url")
+            },
+            "credentials": sorted(
+                p.stem for p in (self.root / "credentials").glob("*.json")
+            ),
+        }
+
+    def inspect_projects(self):
+        return {"projects": self.registry.list("project")}
 
     def bootstrap(self):
         """Run on manager startup; never starts explicitly stopped or archived workers."""
         with self.lock:
             self.ensure_member(self.buzz.pubkey, "admin")
-            self.channel(
-                {
-                    "action": "create_channel",
-                    "id": "office",
-                    "name": "Office Of COA",
-                    "description": "Team building with Chief of Agents",
-                    "visibility": "private",
-                }
-            )
+            office = self.registry.get("channel/office")
+            if office and office.get("state") == "provisioning":
+                self.channel(
+                    {k: v for k, v in office.items() if k not in ("uuid", "state")}
+                )
+            if not office:
+                self.channel(
+                    {
+                        "action": "create_channel",
+                        "id": "office",
+                        "name": "Office Of COA",
+                        "description": "Team building with Chief of Agents",
+                        "visibility": "private",
+                    }
+                )
             agent = self.registry.get("agent/coa") or {
                 "id": "coa",
                 "name": "Chief of Agents",
@@ -409,9 +530,11 @@ class Manager:
                 "state": "starting",
             }
             self.save_agent(agent)
-            self.register_agent(agent)
-            self.membership(self.config["office"], agent["pubkey"])
-            self.launch(agent)
+            if agent["state"] in ("starting", "running"):
+                self.register_agent(agent)
+                for channel_id in agent["channel_ids"]:
+                    self.membership(channel_id, agent["pubkey"])
+                self.launch(agent)
             for worker in self.registry.list("agent"):
                 if worker["id"] != "coa" and worker["state"] == "running":
                     self.launch(worker)

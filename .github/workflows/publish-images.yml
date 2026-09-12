@@ -93,6 +93,7 @@ jobs:
           sbom: true
       - name: Verify published images and bootstrap
         env:
+          EXERCISE_MANAGEMENT: "1"
           BUZZ_IMAGE: ${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
           HERMES_IMAGE: ${{ env.IMAGE_ROOT }}/hermes@${{ steps.hermes.outputs.digest }}
         run: python tests/integration/bootstrap_images.py

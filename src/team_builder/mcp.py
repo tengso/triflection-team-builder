@@ -23,8 +23,26 @@ def main():
 
     @server.tool()
     def inspect_team() -> dict:
-        """Read managed agents, channels, and gateway health."""
+        """Read managed agents, channels, projects, provider settings, credential names, and gateway health."""
         return call("/inspect", {})
+
+    @server.tool()
+    def inspect_projects() -> dict:
+        """List managed Buzz projects, repository coordinates, and linked channels."""
+        return call("/projects", {})
+
+    @server.tool()
+    def store_provider_credential(source_event_id: str, id: str, api_key: str) -> dict:
+        """Store an owner-supplied key under an immutable name. Never include keys in proposals.
+
+        Prefer `team-builder credential` with a hidden local prompt when possible;
+        keys pasted in Buzz chat remain in that chat's history.
+        Use a separate owner message to authorize configure_provider afterward.
+        """
+        return call(
+            "/credential",
+            {"source_event_id": source_event_id, "id": id, "api_key": api_key},
+        )
 
     @server.tool()
     def propose_changes(source_event_id: str, operations: list[dict]) -> dict:

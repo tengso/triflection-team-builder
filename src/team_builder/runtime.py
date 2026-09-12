@@ -88,6 +88,8 @@ def render(config, secrets, agent):
             .read_text()
             .format(owner=config["owner"])
         )
+        if agent.get("instructions"):
+            soul += "\n\nOwner-configured instructions:\n" + agent["instructions"]
     else:
         soul = f"You are {agent['name']}, an agent in a Buzz community.\n\n{agent['instructions']}\n\nWork in your assigned channels and reply in the request thread. Team changes must be proposed to Chief of Agents and approved by the human owner."
     return document, env, soul

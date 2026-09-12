@@ -84,6 +84,27 @@ def main():
             print(run(*command), flush=True)
             assert json.loads((state / "config.json").read_text()) == before
             assert before["runtime_image"] == before["images"]["hermes"]
+            if os.environ.get("EXERCISE_MANAGEMENT") == "1":
+                script = Path(__file__).with_name("community_operations.py").read_text()
+                script += "\nexercise(" + repr(owner.read_text()) + ")\n"
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        "-i",
+                        before["project"] + "-manager-1",
+                        "/opt/hermes/.venv/bin/python",
+                        "-",
+                    ],
+                    check=False,
+                    input=script,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode:
+                    # Script assertions contain only sanitized operation results.
+                    raise RuntimeError(result.stdout + result.stderr)
+                print(result.stdout, flush=True)
             print(
                 "PASS: published image bootstrap, gateway readiness, and identity-preserving resume",
                 flush=True,

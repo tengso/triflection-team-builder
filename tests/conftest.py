@@ -57,6 +57,25 @@ class FakeBuzz:
                 "roles": {},
                 "head": event,
             }
+        if kind == 9002:
+            channel = self.channels[h[0][0]]
+            channel.update(
+                name=tags(event, "name"),
+                about=tags(event, "about"),
+                private=tags(event, "visibility") == [["private"]],
+            )
+        if kind == 9008:
+            self.channels.pop(h[0][0], None)
+        if kind == 5:
+            for coordinate in tags(event, "a"):
+                k, author, identifier = coordinate[0].split(":", 2)
+                for event_id, stored in list(self.events.items()):
+                    if (
+                        stored["kind"] == int(k)
+                        and stored["pubkey"] == author
+                        and tags(stored, "d") == [[identifier]]
+                    ):
+                        del self.events[event_id]
         if kind in (9000, 9001):
             channel = self.channels[h[0][0]]
             member = tags(event, "p")[0][0]

@@ -155,9 +155,12 @@ def test_lifecycle_invitation_update_and_archive_retains_data(manager, create_op
         {"action": "remove_member", "agent": "coa", "channel": "office"},
     ],
 )
-def test_protected_resources(manager, operation):
+def test_owner_can_manage_coa_and_office(manager, operation):
     result = manager.execute(message(manager), [operation])
-    assert result["state"] == "partial_failure" and "protected" in result["error"]
+    assert result["state"] == "complete"
+    manager.bootstrap()
+    if operation["action"] in ("archive_agent", "stop_agent", "remove_member"):
+        assert not manager.docker.ready(manager.name(manager.resource("coa", "agent")))
 
 
 def test_reject_old_or_wrong_channel_request(manager, create_ops):

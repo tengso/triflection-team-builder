@@ -60,14 +60,50 @@ Specific owner instructions such as “Stop the engineer” can execute immediat
 Requests from other agents always require owner approval. Only agents explicitly
 invited join the office; creating an agent does not invite it automatically.
 
-COA can create and update agents and channels, change memberships, start/stop
-agents, and archive them. Each agent gets standard Hermes tools and its own
-persistent workspace. Installing integrations, adding credentials through chat,
-inviting humans, and provisioning GitHub repositories are outside this version.
+COA can manage agents, channels, human memberships and invitation links, shared
+model-provider settings, and native Buzz projects. Its MCP tools are `inspect_team`,
+`inspect_projects`, `propose_changes`, `execute_direct`, `execute_proposal`, and
+`store_provider_credential`. Mutations use the same signed owner authorization
+and frozen-proposal checks, including project operations.
 
-Archive stops the agent and removes its active channel memberships while retaining
-its identity, configuration, and workspace. Automatic unarchive is not exposed in
-v1. COA, the human owner, and the office are protected from these management tools.
+- Channels: create, rename, change descriptions/visibility, manage members, delete.
+- Agents: create, update instructions/model, start, stop, archive, change channels.
+- Humans: create expiring, use-limited community invite links; add/remove channel
+  members by public key. Invite links grant community access, not private-channel access.
+- Projects: create/update/delete native NIP-MP records, link a channel, and attach
+  or detach existing repository announcement coordinates. Listed/unlisted controls
+  discovery, not confidentiality; project metadata is community-visible. Project
+  records are owned by the management identity and survive COA removal. Deleting
+  a project preserves its repositories and channel.
+- Providers: store named credentials, change the shared provider/default model,
+  and restart running workers. Existing per-agent model overrides remain in effect.
+
+To add a credential without putting the key into chat history, run on Ubuntu:
+
+```sh
+team-builder credential research-provider
+```
+
+Then tell COA the provider, model, and credential name. Custom OpenAI-compatible
+providers also require a base URL. COA can store a key supplied directly by its
+owner through `store_provider_credential`; keys pasted into Buzz remain in chat
+history. The manager excludes keys from approval proposals, operation records,
+and inspection responses. Named credentials are immutable: rotation uses a new
+name. Provider changes persist atomically in the private `provider.json` file.
+
+COA and its office can now be renamed, reconfigured, stopped/archived or deleted
+by owner instruction. Archiving retains agent workspaces. Stopping/archiving COA
+ends its replies; deleting its last channel stops it. Move COA and the owner to
+another channel first to keep conversation-based management available there
+(address COA by mention/reply). The manager accepts signed owner instructions in
+any managed channel. Restarting the manager does not resurrect removed resources.
+Automatic agent unarchive, integration installation, and repository hosting or
+GitHub provisioning remain outside this version.
+
+Retries reuse recorded operation outcomes. If invite creation is interrupted
+before its result is saved, the upstream API cannot resolve that ambiguity by
+request ID: management reports an unknown outcome rather than minting duplicates.
+Inspect Buzz before authorizing another invite ID.
 
 ## Operation and recovery
 

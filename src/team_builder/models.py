@@ -45,14 +45,72 @@ class CreateChannel(Operation):
 class UpdateChannel(Operation):
     action: Literal["update_channel"]
     id: Slug
-    name: Name
-    description: Annotated[str, Field(max_length=2000)] = ""
+    name: Name | None = None
+    description: Annotated[str, Field(max_length=2000)] | None = None
+    visibility: Literal["private", "public"] | None = None
 
 
 class Membership(Operation):
     action: Literal["add_member", "remove_member"]
     channel: Slug
     agent: Slug
+
+
+class DeleteChannel(Operation):
+    action: Literal["delete_channel"]
+    id: Slug
+
+
+class HumanMembership(Operation):
+    action: Literal["add_human_member", "remove_human_member"]
+    channel: Slug
+    pubkey: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    role: Literal["member", "admin", "owner"] = "member"
+
+
+class Invite(Operation):
+    action: Literal["create_invite"]
+    id: Slug
+    ttl_secs: Annotated[int, Field(ge=60, le=2592000)] = 259200
+    max_uses: Annotated[int, Field(ge=1, le=10000)] = 1
+
+
+RepoCoordinate = Annotated[
+    str, Field(pattern=r"^30617:[0-9a-f]{64}:[^\s]+$", max_length=512)
+]
+
+
+class CreateProject(Operation):
+    action: Literal["create_project"]
+    id: Slug
+    name: Name
+    description: Annotated[str, Field(max_length=2000)] = ""
+    channel: Slug
+    repositories: Annotated[list[RepoCoordinate], Field(max_length=64)] = []
+    visibility: Literal["listed", "unlisted"] = "listed"
+
+
+class UpdateProject(Operation):
+    action: Literal["update_project"]
+    id: Slug
+    name: Name | None = None
+    description: Annotated[str, Field(max_length=2000)] | None = None
+    channel: Slug | None = None
+    repositories: Annotated[list[RepoCoordinate], Field(max_length=64)] | None = None
+    visibility: Literal["listed", "unlisted"] | None = None
+
+
+class DeleteProject(Operation):
+    action: Literal["delete_project"]
+    id: Slug
+
+
+class ConfigureProvider(Operation):
+    action: Literal["configure_provider"]
+    provider: Literal["openrouter", "openai", "custom"]
+    model: Annotated[str, Field(min_length=1, max_length=200)]
+    credential: Slug
+    base_url: Annotated[str, Field(max_length=2000)] | None = None
 
 
 Operations = TypeAdapter(
@@ -63,7 +121,14 @@ Operations = TypeAdapter(
             | AgentState
             | CreateChannel
             | UpdateChannel
-            | Membership,
+            | Membership
+            | DeleteChannel
+            | HumanMembership
+            | Invite
+            | CreateProject
+            | UpdateProject
+            | DeleteProject
+            | ConfigureProvider,
             Field(discriminator="action"),
         ]
     ]

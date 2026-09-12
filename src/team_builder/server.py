@@ -46,6 +46,8 @@ def serve(manager, address=("0.0.0.0", 8088)):
                 with manager.lock:
                     methods = {
                         "/inspect": manager.inspect,
+                        "/projects": manager.inspect_projects,
+                        "/credential": manager.store_provider_credential,
                         "/propose": manager.propose,
                         "/execute": manager.execute,
                         "/approve": manager.approve,
