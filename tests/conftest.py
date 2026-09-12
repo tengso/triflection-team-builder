@@ -35,7 +35,11 @@ class FakeBuzz:
         return max(events, key=lambda e: e["created_at"]) if events else None
 
     def replace(self, kind, tag_list, content):
-        return self.event(kind, tag_list, content)
+        identifier = next((t[1] for t in tag_list if t[0] == "d"), None)
+        head = self.head(kind, self.pubkey, identifier)
+        if head and head["tags"] == tag_list and head["content"] == content:
+            return head
+        return self.event(kind, tag_list, content, head=head)
 
     def event(self, kind, tag_list, content="", head=None):
         event = sign(

@@ -55,6 +55,32 @@ def exercise(owner_secret):
             }
         ]
     )
+    linked = execute(
+        [
+            {
+                "action": "link_github_repository",
+                "project": "study",
+                "url": "https://github.com/example/existing-repository",
+            }
+        ]
+    )["results"][0]["repository"]
+    repo_head = m.buzz.head(30617, m.buzz.pubkey, linked["id"])
+    assert tags(repo_head, "buzz-hosting") == [["external"]]
+    assert tags(repo_head, "clone") == [
+        ["https://github.com/example/existing-repository.git"]
+    ]
+    project_head = m.buzz.head(30621, m.buzz.pubkey, "study")
+    assert tags(project_head, "a") == [[linked["coordinate"]]]
+    execute(
+        [
+            {
+                "action": "link_github_repository",
+                "project": "study",
+                "url": "https://github.com/EXAMPLE/existing-repository.git/",
+            }
+        ]
+    )
+    assert len(m.registry.list("repository")) == 1
     execute([{"action": "delete_project", "id": "study"}])
     person = public(key())
     execute([{"action": "create_invite", "id": "visitor", "max_uses": 1}])
@@ -77,5 +103,5 @@ def exercise(owner_secret):
     assert m.buzz.archived(public(m.secrets["coa"]))
     assert m.buzz.channel(m.config["office"]) is None
     print(
-        "PASS: real relay projects, invitations, memberships, visibility, deletion, COA lifecycle, and retries"
+        "PASS: real relay projects, GitHub repository linking, invitations, memberships, visibility, deletion, COA lifecycle, and retries"
     )

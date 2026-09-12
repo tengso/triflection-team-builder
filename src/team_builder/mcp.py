@@ -52,7 +52,7 @@ def main():
     ) -> dict:
         """Propose agents, channels, invitations, provider settings, or Buzz projects for owner approval.
 
-        Includes create_project, update_project and delete_project. Use for broad
+        Includes create_project, update_project, delete_project and link_github_repository(project,url). Use for broad
         requests or any agent proposal; operations are frozen for approval."""
         return call(
             "/propose",
@@ -67,10 +67,11 @@ def main():
         source_event_id: str, operations: list[ManagementOperation]
     ) -> dict:
         """Execute owner-authorized community changes, including create_project, update_project,
-        delete_project, agents, channels, invitations, and provider settings.
+        delete_project, link_github_repository(project,url), agents, channels, invitations, and provider settings.
 
         Project creation is an operation in this tool, not a separate MCP tool.
-        Other authors are rejected."""
+        Link an existing GitHub URL with link_github_repository; its Buzz repository
+        announcement is created automatically. Other authors are rejected."""
         return call(
             "/execute",
             {

@@ -2,7 +2,9 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, TypeAdapter
+
+from .repositories import github_url
 
 Slug = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,47}$")]
 Name = Annotated[str, Field(min_length=1, max_length=120)]
@@ -105,6 +107,21 @@ class DeleteProject(Operation):
     id: Slug
 
 
+class LinkGitHubRepository(Operation):
+    """Announce an existing GitHub repository and add it to a project, keeping existing links."""
+
+    action: Literal["link_github_repository"]
+    project: Slug
+    url: Annotated[
+        str,
+        Field(
+            max_length=512,
+            description="GitHub repository URL, e.g. https://github.com/owner/repo; Buzz registration is automatic",
+        ),
+        AfterValidator(github_url),
+    ]
+
+
 class ConfigureProvider(Operation):
     action: Literal["configure_provider"]
     provider: Literal["openrouter", "openai", "custom"]
@@ -126,6 +143,7 @@ ManagementOperation = Annotated[
     | CreateProject
     | UpdateProject
     | DeleteProject
+    | LinkGitHubRepository
     | ConfigureProvider,
     Field(discriminator="action"),
 ]

@@ -10,6 +10,7 @@ from .community import configure_provider, invite, project
 from .docker import Docker
 from .models import validate
 from .nostr import attestation, key, public, reply_tags, sign, tags, wire
+from .repositories import link_github_repository
 from .runtime import start_agent
 from .storage import Registry
 
@@ -202,6 +203,8 @@ class Manager:
 
     def apply(self, op):
         action = op["action"]
+        if action == "link_github_repository":
+            return link_github_repository(self, op)
         if action in ("create_project", "update_project", "delete_project"):
             return project(self, op)
         if action == "create_invite":
@@ -498,7 +501,10 @@ class Manager:
         }
 
     def inspect_projects(self):
-        return {"projects": self.registry.list("project")}
+        return {
+            "projects": self.registry.list("project"),
+            "repositories": self.registry.list("repository"),
+        }
 
     def bootstrap(self):
         """Run on manager startup; never starts explicitly stopped or archived workers."""

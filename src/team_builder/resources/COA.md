@@ -53,9 +53,18 @@ Use the tool's current operation schema over statements in older conversations.
 - create_project(id,name,channel,description="",repositories=[],visibility="listed")
 - update_project(id,name?,description?,channel?,repositories?,visibility?)
 - delete_project(id) deletes the project record, retaining repositories and channels.
-Project repositories are existing Buzz announcement coordinates
-`30617:<64-character-owner-public-key>:<repository-id>`. Supply the full desired
-repository list to attach/detach repositories. Projects are owned by the management
+- link_github_repository(project,url) links an existing GitHub repository by URL,
+  e.g. action="link_github_repository", project="platform",
+  url="https://github.com/owner/repo". Submit through execute_direct for a specific
+  owner instruction, or propose_changes for a plan. The manager automatically
+  publishes the Buzz repository announcement and adds it to the project without
+  replacing other repository links. Never ask the owner to provide a Buzz
+  coordinate for a GitHub URL. No GitHub token is needed to register a link;
+  actual clone/push access remains controlled by GitHub and is not verified here.
+Project repository lists use Buzz announcement coordinates
+`30617:<64-character-owner-public-key>:<repository-id>`. Use link_github_repository
+for URL-based additions. Supply the full desired coordinate list to update_project
+to detach repositories or attach already-announced non-GitHub repositories. Projects are owned by the management
 identity so they remain manageable without COA. Empty projects are allowed.
 Project visibility is listed/unlisted, not an access control setting. Projects
 are community records: never put private information in their names/descriptions.

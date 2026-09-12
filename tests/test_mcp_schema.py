@@ -35,6 +35,7 @@ def test_project_operations_are_visible_and_serialized_in_mcp(monkeypatch):
             schema = json.dumps(tools[name].inputSchema)
             for action in (
                 "create_project",
+                "link_github_repository",
                 "update_project",
                 "delete_project",
                 "configure_provider",

@@ -71,7 +71,12 @@ and frozen-proposal checks, including project operations.
 - Humans: create expiring, use-limited community invite links; add/remove channel
   members by public key. Invite links grant community access, not private-channel access.
 - Projects: create/update/delete native NIP-MP records, link a channel, and attach
-  or detach existing repository announcement coordinates. Listed/unlisted controls
+  or detach repository announcement coordinates. Use `link_github_repository(project,url)`
+  to link an existing GitHub URL directly: Buzz announcement creation is automatic,
+  and existing links are preserved. HTTPS repository URLs with optional `.git`
+  suffix/trailing slash are accepted; branch/file URLs and embedded credentials
+  are rejected. Registration does not check GitHub existence or grant clone/push
+  access; GitHub credentials remain separate. Listed/unlisted controls
   discovery, not confidentiality; project metadata is community-visible. Project
   records are owned by the management identity and survive COA removal. Deleting
   a project preserves its repositories and channel.
