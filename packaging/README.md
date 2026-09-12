@@ -2,6 +2,10 @@
 
 Repository: https://github.com/tengso/triflection-team-builder
 
+Release `0.1.0` is public and supports anonymous pulls. The installer pins the
+verified image digests in `src/team_builder/resources/images.json`. The release
+includes an installer wheel and an `images.json` manifest with the build commit.
+
 | Image | Contents |
 | --- | --- |
 | `ghcr.io/tengso/triflection-team-builder/buzz` | Buzz relay, administration CLI, and agent CLI |
@@ -17,7 +21,7 @@ builder code. All agents and the manager use the same Hermes runtime image.
 Run the **Publish images** workflow with a new semantic version:
 
 ```sh
-gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.1.0
+gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.1.1
 ```
 
 The workflow downloads the exact upstream commits in `sources.json`, applies the
@@ -34,7 +38,9 @@ GHCR initially creates packages as private: set each package's visibility to pub
 for anonymous installs. No secrets should be added to either Docker build context.
 
 After validation, update `src/team_builder/resources/images.json` with the released
-image digests. This pins new installations; existing state remains unchanged.
+image digests, then build the installer with `uv build --wheel` and publish it with
+the manifest in a GitHub release. This pins new installations; existing state
+remains unchanged.
 
 ## Reproduce locally
 

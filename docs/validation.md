@@ -70,6 +70,27 @@ It posts test messages, uses the model provider, creates `smoke-dev` and
 for a second complete run after successful archival. An interrupted proposal can
 be resumed. Run only one harness against an installation at a time.
 
+## Published image validation — 2026-09-12
+
+[Release workflow run 34666426450](https://github.com/tengso/triflection-team-builder/actions/runs/34666426450)
+passed on a fresh Linux amd64 GitHub runner. It ran all 35 unit tests and lint
+checks, built both images from pinned upstream sources, and verified Buzz CLI
+startup and Hermes imports in a read-only container. It then bootstrapped an
+isolated Compose installation, checked registration, office membership and COA
+gateway readiness, and repeated setup without replacing identities or configuration.
+Only after those checks passed did it publish the `0.1.0` tags.
+
+An independent temporary Ubuntu VM installation also passed fresh bootstrap and
+identity-preserving setup recovery using the published candidate runtime. Its
+containers, volumes and generated keys were cleaned up afterward. The existing VM
+deployment stayed healthy. Publication checks use a dummy provider credential;
+they make no model calls. The live conversational validation recorded above was a
+separate test.
+
+The installer pins the released Buzz and Hermes digests. The supporting MinIO
+server and client use digest-pinned official Quay images because their Docker Hub
+references rejected anonymous pulls; both Quay digests match the earlier VM inputs.
+
 ## Earlier local image inputs
 
 These immutable image IDs were used for the original VM validation below. They

@@ -15,7 +15,7 @@ image IDs. It does not need Rust, a Hermes checkout, or a local Docker build.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'git+https://github.com/tengso/triflection-team-builder.git'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.1.0/buzz_team_builder-0.1.0-py3-none-any.whl'
 team-builder init \
   --bind 0.0.0.0 \
   --port 3100

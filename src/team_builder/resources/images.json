@@ -1,4 +1,4 @@
 {
-  "buzz": "ghcr.io/tengso/triflection-team-builder/buzz:0.1.0",
-  "hermes": "ghcr.io/tengso/triflection-team-builder/hermes:0.1.0"
+  "buzz": "ghcr.io/tengso/triflection-team-builder/buzz@sha256:73495b745e96c791e6c87840d5acd189b5592cfd3a09ea0afe0fcef465bfc6df",
+  "hermes": "ghcr.io/tengso/triflection-team-builder/hermes@sha256:41d3bac133b9a451f470f9f76dd525e448d230dafc971964279d2627a86c0298"
 }
