@@ -51,7 +51,10 @@ def test_grant_is_scoped_private_and_durable(github):
     assert "github_test_private_token" not in json.dumps(inspection)
     for table in ("resources", "operations", "authorizations", "proposals"):
         assert "github_test_private_token" not in str(
-            manager.registry.db.execute("SELECT * FROM " + table).fetchall()
+            [
+                tuple(row)
+                for row in manager.registry.db.execute("SELECT * FROM " + table)
+            ]
         )
     manager.bootstrap()
     assert manager.resource("engineer", "agent")["github_credential"] == "work"
@@ -127,6 +130,28 @@ def test_create_agent_with_named_credential(github, create_ops):
         == "complete"
     )
     assert github.resource("second", "agent")["github_credential"] == "work"
+
+
+def test_interrupted_grant_retries_same_operation(github, monkeypatch):
+    op = {
+        "action": "configure_github_access",
+        "agent": "engineer",
+        "credential": "work",
+    }
+    request_id = str(uuid.uuid4())
+    launch = github.launch
+
+    def fail_launch(agent):
+        raise RuntimeError("Transient restart failure")
+
+    monkeypatch.setattr(github, "launch", fail_launch)
+    with pytest.raises(RuntimeError, match="Transient"):
+        github_access.operator_apply(github, op, request_id)
+    assert github.resource("engineer", "agent")["github_credential"] == "work"
+    monkeypatch.setattr(github, "launch", launch)
+    result = github_access.operator_apply(github, op, request_id)
+    assert result["github_credential"] == "work"
+    assert github_access.operator_apply(github, op, request_id) == result
 
 
 def test_local_operator_endpoint_rejects_coa_token_and_records_retry(github):
