@@ -40,6 +40,27 @@ def main():
         "-c",
         "import team_builder.server, team_builder.mcp, plugins.platforms.buzz.adapter",
     )
+    prompt_test = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "HERMES_HOME=/tmp/hermes-prompt-test",
+            "--entrypoint",
+            "/opt/hermes/.venv/bin/python",
+            hermes,
+            "-",
+        ],
+        input=Path(__file__).with_name("hermes_prompt_refresh.py").read_text(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if prompt_test.returncode:
+        raise RuntimeError(prompt_test.stdout + prompt_test.stderr)
+    print(prompt_test.stdout, flush=True)
     with tempfile.TemporaryDirectory(prefix="team-builder-images-") as temp:
         directory = Path(temp)
         owner, provider = directory / "owner.key", directory / "provider.key"

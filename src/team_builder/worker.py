@@ -1,10 +1,46 @@
+import hashlib
 import json
 import os
 import socket
+import sqlite3
 import sys
 from pathlib import Path
 
 from .storage import private_write
+
+
+def refresh_session_prompts(home: Path):
+    """Invalidate Hermes' frozen prompt/tool prefix when managed capabilities change.
+
+    Run before starting the gateway, with no live Hermes writer. Messages, session
+    identities and historical prompt blobs remain intact. Unchanged restarts keep
+    the rebuilt prefix cached. Write the marker last so interrupted upgrades retry.
+    """
+    from .models import Operations
+
+    digest = hashlib.sha256(b"team-builder-prompt-generation-v1\0")
+    for name in ("SOUL.md", "config.yaml"):
+        data = (home / name).read_bytes()
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    digest.update(json.dumps(Operations.json_schema(), sort_keys=True).encode())
+    generation = digest.hexdigest().encode()
+    marker = home / ".team-builder-prompt-generation"
+    if marker.exists() and marker.read_bytes() == generation:
+        return 0
+    count = 0
+    database = home / "state.db"
+    if database.exists():
+        # mode=rw avoids silently creating an empty database on a wrong path.
+        with sqlite3.connect(database.as_uri() + "?mode=rw", uri=True) as db:
+            count = db.execute(
+                "UPDATE sessions SET system_prompt=NULL, system_prompt_hash=NULL, "
+                "tool_names=NULL WHERE ended_at IS NULL AND "
+                "(system_prompt IS NOT NULL OR system_prompt_hash IS NOT NULL "
+                "OR tool_names IS NOT NULL)"
+            ).rowcount
+    private_write(marker, generation)
+    return count
 
 
 def health():
@@ -60,6 +96,12 @@ def main():
         for k, v in values.items()
     )
     private_write(home / ".env", dotenv.encode())
+    refreshed = refresh_session_prompts(home)
+    if refreshed:
+        print(
+            f"Refreshed managed capabilities for {refreshed} continuing sessions",
+            flush=True,
+        )
     os.execve(
         "/opt/hermes/.venv/bin/hermes",
         ["hermes", "gateway", "run", "--no-supervise", "--external-supervisor"],

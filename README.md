@@ -113,6 +113,9 @@ Inspect Buzz before authorizing another invite ID.
 ## Upgrade an existing installation
 
 Install the new wheel in the VM's virtual environment, then run `team-builder upgrade`.
+When managed instructions, configuration, or operation schemas change, workers refresh
+Hermes' saved system prompts and tool lists for continuing sessions. Conversation
+history is preserved; unchanged restarts retain the cached prompts.
 The command updates the manager and running agents, preserving identities, workspaces,
 channels, and infrastructure volumes. It saves the previous Compose/config files under
 `STATE/upgrades/`. Use `--runtime-image` for an explicit runtime image; `init` continues
