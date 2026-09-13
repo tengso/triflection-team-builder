@@ -1,4 +1,4 @@
 {
-  "buzz": "ghcr.io/tengso/triflection-team-builder/buzz@sha256:d634a019a0e4b4848d32b4b20ccda8d89ac50a3f17dd7168bbccf49e6c47ffec",
-  "hermes": "ghcr.io/tengso/triflection-team-builder/hermes@sha256:76dd2df100b888cdd42823f3442ca858775b1709d4e26a6f5c8092749efd0d92"
+  "buzz": "ghcr.io/tengso/triflection-team-builder/buzz@sha256:541359e937bfe33c6d6f10b5afa560472b96809ca8d3a23c16c8ba1fe84a1e23",
+  "hermes": "ghcr.io/tengso/triflection-team-builder/hermes@sha256:74fe511641f76e9434d4cee3ba915727f245c590fbb87c4d6ee241f456094614"
 }
