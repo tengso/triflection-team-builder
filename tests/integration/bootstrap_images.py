@@ -61,6 +61,27 @@ def main():
     if prompt_test.returncode:
         raise RuntimeError(prompt_test.stdout + prompt_test.stderr)
     print(prompt_test.stdout, flush=True)
+    approval_test = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "HERMES_HOME=/tmp/hermes-approval-test",
+            "--entrypoint",
+            "/opt/hermes/.venv/bin/python",
+            hermes,
+            "-",
+        ],
+        input=Path(__file__).with_name("buzz_approval.py").read_text(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if approval_test.returncode:
+        raise RuntimeError(approval_test.stdout + approval_test.stderr)
+    print(approval_test.stdout, flush=True)
     with tempfile.TemporaryDirectory(prefix="team-builder-images-") as temp:
         directory = Path(temp)
         owner, provider = directory / "owner.key", directory / "provider.key"

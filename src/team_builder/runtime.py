@@ -61,6 +61,7 @@ def render(config, secrets, agent):
             }
         }
     env = {
+        "TEAM_BUILDER_OWNER": config["owner"],
         "BUZZ_PRIVATE_KEY": agent["secret"],
         "BUZZ_AUTH_TAG": wire(agent["auth_tag"]).decode(),
         "BUZZ_RELAY_URL": config["advertised_url"],

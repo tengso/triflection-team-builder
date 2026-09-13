@@ -166,6 +166,14 @@ image. If readiness fails, inspect manager logs before retrying.
 
 ## Operation and recovery
 
+When an agent requests command approval in Buzz, the community owner can reply
+directly to that prompt with `/approve` or `/deny`. If the app attaches replies to
+the thread root, use the prompt's explicit `/approve REQUEST_ID` command in the
+same channel. `/approve REQUEST_ID session` or `always` are accepted only when the
+security check permits that scope. Expired, already answered, ambiguous, and
+pre-restart prompts cannot authorize a newer command; ask the agent to retry for
+a fresh prompt. No command-security checks are disabled by this routing support.
+
 State defaults to `~/.local/state/team-builder/default`. Use a different
 `--state-dir` and port for each community. Run the same `init` command again to
 resume interrupted setup. If interruption happened before owner registration,
