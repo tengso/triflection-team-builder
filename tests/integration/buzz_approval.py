@@ -84,6 +84,16 @@ async def check():
     # Reproduce the reported topology: no mention, reply to the owner's original
     # message, while the pending approval belongs to a top-level session.
     loop = asyncio.get_running_loop()
+    # Simulate the owner trigger addressed only to this engineer.
+    from team_builder.buzz_approval import handle_reply
+
+    await handle_reply(
+        adapter,
+        {"id": "original-owner-message", "pubkey": OWNER, "tags": [["p", BOT]]},
+        CHANNEL,
+        "do the work",
+        False,
+    )
     ready = asyncio.Event()
 
     def notify(data):
@@ -114,6 +124,10 @@ async def check():
     assert not adapter._dispatch_message.called
 
     entry, prompt = await pending("threaded")
+    await inbound("/approve", "owner-root")
+    assert not entry.event.is_set(), (
+        "A root without an exclusive agent target must not authorize"
+    )
     await inbound("/approve", prompt, author="c" * 64)
     assert not entry.event.is_set()
     await inbound("/approve", prompt, timestamp=1)

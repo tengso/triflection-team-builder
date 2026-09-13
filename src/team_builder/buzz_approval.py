@@ -61,6 +61,8 @@ async def send_exec_approval(
         "session_key": session_key,
         "channel": str(chat_id),
         "anchor": anchor,
+        "root_exclusive": anchor
+        in getattr(adapter, "_team_approval_owned_roots", set()),
         "created_at": int(time.time()),
         "allow_session": allow_session,
         "allow_permanent": allow_permanent,
@@ -73,6 +75,16 @@ async def send_exec_approval(
 async def handle_reply(adapter, event, channel_id, text, reply_to_is_own):
     words = text.strip().split()
     if not words or words[0].lower() not in ("/approve", "/deny"):
+        # Root-only replies carry no agent identity. Accept that shortcut only
+        # when the original owner message explicitly targeted this agent alone.
+        # Otherwise two agents working in one thread could both consume /approve.
+        targets = {t[1] for t in event.get("tags", []) if len(t) > 1 and t[0] == "p"}
+        if event.get("pubkey") == os.environ.get("TEAM_BUILDER_OWNER") and targets == {
+            adapter._self_pubkey
+        }:
+            if not hasattr(adapter, "_team_approval_owned_roots"):
+                adapter._team_approval_owned_roots = set()
+            adapter._team_approval_owned_roots.add(event["id"])
         return False
     routes = getattr(adapter, "_team_approval_routes", {})
     reply_ids = {t[1] for t in event.get("tags", []) if len(t) > 1 and t[0] == "e"}
@@ -82,12 +94,13 @@ async def handle_reply(adapter, event, channel_id, text, reply_to_is_own):
     args = words[1:]
     explicit = [(mid, r) for mid, r in in_channel if r["request_id"] in args]
     direct = [(mid, r) for mid, r in in_channel if mid in reply_ids]
+    root_matches = [(mid, r) for mid, r in in_channel if r["anchor"] in reply_ids]
     candidates = (
         explicit
         or direct
-        or [(mid, r) for mid, r in in_channel if r["anchor"] in reply_ids]
+        or [(mid, r) for mid, r in root_matches if r["root_exclusive"]]
     )
-    addressed = reply_to_is_own or adapter._is_addressed(event)
+    addressed = reply_to_is_own or adapter._is_addressed(event) or bool(root_matches)
     if not candidates and not addressed:
         # Another agent's approval (or an unaddressed command) is not ours.
         return True
