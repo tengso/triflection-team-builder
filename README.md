@@ -103,7 +103,49 @@ another channel first to keep conversation-based management available there
 (address COA by mention/reply). The manager accepts signed owner instructions in
 any managed channel. Restarting the manager does not resurrect removed resources.
 Automatic agent unarchive, integration installation, and repository hosting or
-GitHub provisioning remain outside this version.
+GitHub repository creation remain outside this version.
+
+## GitHub access for agents
+
+On the Linux installation host, provision a named token without sending it to chat:
+
+```sh
+team-builder github-credential github-platform --env-file /path/to/.env
+team-builder github-access software-engineer --credential github-platform
+```
+
+The env-file reader loads only `GITHUB_TOKEN`, without executing shell code. Use
+`--key-file` for a file containing only the token, or omit both flags for a hidden
+prompt. The manager stores it privately; only assigned agents receive a read-only
+token file. Tokens are absent from Docker environment metadata, Git URLs, Buzz
+records, proposals, and inspection output. An assigned agent can read its token;
+use a fine-grained PAT restricted on GitHub to the intended repositories and
+permissions. Grant Contents read for cloning, read/write for pushes, and Pull
+requests write if the agent should manage PRs. Agent assignment does not narrow
+the permissions of a broad token.
+
+For future team building, tell COA: “Create a software engineer in Platform and
+assign GitHub credential github-platform.” COA can include `github_credential`
+when creating an agent, or use `configure_github_access(agent, credential)` after
+creation. These changes require the same verified owner authorization as other
+management operations. COA receives the credential name, not its value, unless
+you explicitly grant GitHub access to COA itself.
+
+HTTPS `git clone`, `fetch`, and `push` authenticate automatically, with a credential
+helper limited to `https://github.com`. GitHub CLI is not required. API clients can
+read the assigned `GITHUB_TOKEN_FILE` privately. GitHub repository announcements
+alone do not grant clone or API access.
+
+```sh
+team-builder github-access software-engineer --revoke
+```
+
+Revocation removes the mounted token and refreshes running workers; stopped workers
+stay stopped and workspaces remain intact. Rotate by storing a new credential name
+and assigning it. Also revoke the old token on GitHub if it must become unusable
+outside this installation. Interrupted local grants can be retried using the
+printed `--request-id`; the manager records operator authorization separately from
+signed Buzz messages.
 
 Retries reuse recorded operation outcomes. If invite creation is interrupted
 before its result is saved, the upstream API cannot resolve that ambiguity by

@@ -67,7 +67,8 @@ def main():
         source_event_id: str, operations: list[ManagementOperation]
     ) -> dict:
         """Execute owner-authorized community changes, including create_project, update_project,
-        delete_project, link_github_repository(project,url), agents, channels, invitations, and provider settings.
+        delete_project, link_github_repository(project,url), configure_github_access(agent,credential),
+        agents, channels, invitations, and provider settings.
 
         Project creation is an operation in this tool, not a separate MCP tool.
         Link an existing GitHub URL with link_github_repository; its Buzz repository

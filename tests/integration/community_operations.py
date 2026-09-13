@@ -90,9 +90,20 @@ def exercise(owner_secret):
     )
     execute([{"action": "delete_channel", "id": "research"}])
     execute([{"action": "stop_agent", "id": "coa"}])
+    from team_builder.github_access import configure, store
+
+    store(m.root, "github-test", "github_dummy_integration_token")
+    configure(m, {"agent": "coa", "credential": "github-test"})
+    token_path = m.root / "agents/coa/managed/github-token"
+    assert token_path.read_text() == "github_dummy_integration_token"
+    assert m.resource("coa", "agent")["state"] == "stopped"
     m.bootstrap()
     assert m.resource("coa", "agent")["state"] == "stopped"
     execute([{"action": "start_agent", "id": "coa"}])
+    assert token_path.read_text() == "github_dummy_integration_token"
+    assert m.inspect()["github_credentials"] == ["github-test"]
+    execute([{"action": "configure_github_access", "agent": "coa"}])
+    assert not token_path.exists()
     execute(
         [
             {"action": "archive_agent", "id": "coa"},
@@ -103,5 +114,5 @@ def exercise(owner_secret):
     assert m.buzz.archived(public(m.secrets["coa"]))
     assert m.buzz.channel(m.config["office"]) is None
     print(
-        "PASS: real relay projects, GitHub repository linking, invitations, memberships, visibility, deletion, COA lifecycle, and retries"
+        "PASS: real relay projects, GitHub repository linking and credential lifecycle, invitations, memberships, visibility, deletion, COA lifecycle, and retries"
     )

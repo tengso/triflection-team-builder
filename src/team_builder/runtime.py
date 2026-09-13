@@ -92,7 +92,41 @@ def render(config, secrets, agent):
             soul += "\n\nOwner-configured instructions:\n" + agent["instructions"]
     else:
         soul = f"You are {agent['name']}, an agent in a Buzz community.\n\n{agent['instructions']}\n\nWork in your assigned channels and reply in the request thread. Team changes must be proposed to Chief of Agents and approved by the human owner."
+    if agent.get("github_credential"):
+        env.update(
+            GITHUB_TOKEN_FILE="/run/team/github-token",
+            GIT_TERMINAL_PROMPT="0",
+            GIT_CONFIG_COUNT="2",
+            GIT_CONFIG_KEY_0="credential.https://github.com.helper",
+            GIT_CONFIG_VALUE_0="",
+            GIT_CONFIG_KEY_1="credential.https://github.com.helper",
+            GIT_CONFIG_VALUE_1="!/opt/hermes/.venv/bin/python -m team_builder.github_access",
+        )
+        soul += (
+            "\n\nGitHub access is provisioned as named credential "
+            + agent["github_credential"]
+            + ". HTTPS git clone/fetch/push authenticate automatically through a GitHub-only "
+            "credential helper. Use plain https://github.com/owner/repo.git URLs. "
+            "For GitHub API calls, read the token from GITHUB_TOKEN_FILE inside your program "
+            "and send it only to https://api.github.com. Never print the token, include it "
+            "in URLs/command arguments, save it in repositories, or paste it into chat. "
+            "GitHub CLI is not required for git access. A repository announcement does not "
+            "grant GitHub permissions; report authentication failures without revealing secrets."
+        )
     return document, env, soul
+
+
+def write_github_token(root, agent):
+    from .github_access import token_for
+
+    managed = root / "agents" / agent["id"] / "managed"
+    managed.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = managed / "github-token"
+    if agent.get("github_credential") and agent["state"] != "archived":
+        private_write(path, token_for(root, agent["github_credential"]).encode())
+        os.chown(path, 10000, 10000)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def start_agent(root, config, secrets, agent, docker):
@@ -107,6 +141,7 @@ def start_agent(root, config, secrets, agent, docker):
     private_write(managed / "config.yaml", yaml.safe_dump(document).encode())
     private_write(managed / "env.json", env)
     private_write(managed / "SOUL.md", soul.encode())
+    write_github_token(root, agent)
     for path in managed.iterdir():
         os.chown(path, 10000, 10000)
     host = config["host_root"] + "/agents/" + agent["id"]

@@ -21,6 +21,7 @@ class CreateAgent(Operation):
     instructions: Annotated[str, Field(min_length=1, max_length=24000)]
     channels: Annotated[list[Slug], Field(min_length=1, max_length=30)]
     model: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    github_credential: Slug | None = None
 
 
 class UpdateAgent(Operation):
@@ -130,6 +131,14 @@ class ConfigureProvider(Operation):
     base_url: Annotated[str, Field(max_length=2000)] | None = None
 
 
+class ConfigureGitHubAccess(Operation):
+    """Grant a named GitHub credential to one agent; omit credential to revoke."""
+
+    action: Literal["configure_github_access"]
+    agent: Slug
+    credential: Slug | None = None
+
+
 ManagementOperation = Annotated[
     CreateAgent
     | UpdateAgent
@@ -144,7 +153,8 @@ ManagementOperation = Annotated[
     | UpdateProject
     | DeleteProject
     | LinkGitHubRepository
-    | ConfigureProvider,
+    | ConfigureProvider
+    | ConfigureGitHubAccess,
     Field(discriminator="action"),
 ]
 Operations = TypeAdapter(list[ManagementOperation])

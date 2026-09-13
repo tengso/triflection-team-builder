@@ -203,6 +203,10 @@ class Manager:
 
     def apply(self, op):
         action = op["action"]
+        if action == "configure_github_access":
+            from .github_access import configure
+
+            return configure(self, op)
         if action == "link_github_repository":
             return link_github_repository(self, op)
         if action in ("create_project", "update_project", "delete_project"):
@@ -267,6 +271,10 @@ class Manager:
             return {"id": agent["id"], "channels": agent["channel_ids"]}
         agent = self.registry.get("agent/" + op["id"])
         if action == "create_agent":
+            if op.get("github_credential"):
+                from .github_access import token_for
+
+                token_for(self.root, op["github_credential"])
             fingerprint = hashlib.sha256(wire(op)).hexdigest()
             if agent and agent.get("creation") != fingerprint:
                 raise ValueError(
@@ -351,6 +359,9 @@ class Manager:
                     raise RuntimeError("Agent archive failed authoritative readback")
                 agent["state"] = "archived"
                 self.save_agent(agent)
+                from .runtime import write_github_token
+
+                write_github_token(self.root, agent)
         return {"id": agent["id"], "pubkey": agent["pubkey"], "state": agent["state"]}
 
     def source(self, identifier, owner=False, cache=True):
@@ -484,7 +495,15 @@ class Manager:
             agents.append(
                 {
                     k: agent.get(k)
-                    for k in ("id", "name", "pubkey", "state", "channel_ids", "model")
+                    for k in (
+                        "id",
+                        "name",
+                        "pubkey",
+                        "state",
+                        "channel_ids",
+                        "model",
+                        "github_credential",
+                    )
                 }
             )
             agents[-1]["gateway_ready"] = self.docker.ready(self.name(agent))
@@ -497,6 +516,9 @@ class Manager:
             },
             "credentials": sorted(
                 p.stem for p in (self.root / "credentials").glob("*.json")
+            ),
+            "github_credentials": sorted(
+                p.stem for p in (self.root / "github" / "credentials").glob("*.json")
             ),
         }
 

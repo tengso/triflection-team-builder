@@ -32,9 +32,17 @@ def serve(manager, address=("0.0.0.0", 8088)):
                 self.answer(404, {"error": "Not found"})
 
         def do_POST(self):
+            local_github = self.path == "/operator/github-access"
+            from .github_access import operator_apply, operator_token
+
             if not hmac.compare_digest(
                 self.headers.get("Authorization", ""),
-                "Bearer " + manager.secrets["token"],
+                "Bearer "
+                + (
+                    operator_token(manager.secrets)
+                    if local_github
+                    else manager.secrets["token"]
+                ),
             ):
                 self.answer(403, {"error": "COA authentication required"})
                 return
@@ -44,6 +52,10 @@ def serve(manager, address=("0.0.0.0", 8088)):
                     raise ValueError("Invalid request size")
                 body = json.loads(self.rfile.read(length))
                 with manager.lock:
+                    if local_github:
+                        result = operator_apply(manager, **body)
+                        self.answer(200, result)
+                        return
                     methods = {
                         "/inspect": manager.inspect,
                         "/projects": manager.inspect_projects,

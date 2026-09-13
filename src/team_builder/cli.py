@@ -398,6 +398,35 @@ def parser():
         ),
     )
     credential.add_argument("--key-file")
+    github_credential = sub.add_parser(
+        "github-credential",
+        help="Store a named GitHub token without sending it to Buzz",
+    )
+    github_credential.add_argument("id")
+    source = github_credential.add_mutually_exclusive_group()
+    source.add_argument("--key-file")
+    source.add_argument(
+        "--env-file", help="Read only GITHUB_TOKEN from this dotenv file"
+    )
+    github_access = sub.add_parser(
+        "github-access", help="Grant or revoke one agent's named GitHub credential"
+    )
+    github_access.add_argument("agent")
+    access = github_access.add_mutually_exclusive_group(required=True)
+    access.add_argument("--credential")
+    access.add_argument("--revoke", action="store_true")
+    github_access.add_argument(
+        "--request-id",
+        default=None,
+        help="Reuse this UUID when retrying an interrupted request",
+    )
+    for command in (github_credential, github_access):
+        command.add_argument(
+            "--state-dir",
+            default=os.environ.get(
+                "TEAM_BUILDER_STATE_DIR", "~/.local/state/team-builder/default"
+            ),
+        )
     command = sub.add_parser("init")
     defaults = {
         "state-dir": "~/.local/state/team-builder/default",
@@ -441,6 +470,62 @@ def main():
             from .upgrade import upgrade
 
             upgrade(args.state_dir, args.runtime_image)
+            return
+        if args.command in ("github-credential", "github-access"):
+            from .github_access import read_token, store
+            from .models import ConfigureGitHubAccess
+
+            root = Path(args.state_dir).expanduser().resolve()
+            if not (root / "config.json").is_file():
+                raise ValueError(
+                    "Initialize this installation before adding credentials"
+                )
+            if args.command == "github-credential":
+                store(root, args.id, read_token(args.key_file, args.env_file))
+                print(
+                    f"GitHub credential {args.id} stored. Assign it by name through COA or team-builder github-access."
+                )
+                return
+            operation = ConfigureGitHubAccess(
+                action="configure_github_access",
+                agent=args.agent,
+                credential=args.credential,
+            ).model_dump(exclude_none=True)
+            request_id = (
+                str(uuid.UUID(args.request_id))
+                if args.request_id
+                else str(uuid.uuid4())
+            )
+            print(f"Applying GitHub access. Retry request ID: {request_id}", flush=True)
+            # The existing manager's HTTP listener owns serialization. Only the
+            # local Docker operator can obtain this separate authentication.
+            script = """import json,sys,httpx
+from pathlib import Path
+from team_builder.github_access import operator_token
+secrets=json.loads(Path('/state/secrets.json').read_text())
+with httpx.Client(trust_env=False,timeout=900) as client:
+    result=client.post('http://127.0.0.1:8088/operator/github-access',headers={'Authorization':'Bearer '+operator_token(secrets)},json=json.load(sys.stdin))
+    if result.status_code != 200:
+        raise SystemExit('GitHub access failed; inspect manager status and retry the same request ID')
+    print(json.dumps(result.json()))
+"""
+            output = run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(root / "compose.yaml"),
+                    "exec",
+                    "-T",
+                    "manager",
+                    "/opt/hermes/.venv/bin/python",
+                    "-c",
+                    script,
+                ],
+                input=json.dumps({"operation": operation, "request_id": request_id}),
+                timeout=920,
+            )
+            print(output)
             return
         if args.command == "credential":
             from .credentials import store_credential

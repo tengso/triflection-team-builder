@@ -88,3 +88,18 @@ to a replacement channel first; there the owner can address COA by mention/reply
 Specific owner instructions in any managed channel can authorize operations.
 Agent proposals still require the human owner's signed approval in the same thread.
 Deleted resource IDs remain reserved; use a new ID for a replacement.
+
+GitHub credentials are provisioned privately on the Linux host with
+`team-builder github-credential NAME --env-file PATH` (or --key-file / hidden
+prompt). Never ask the owner to paste GitHub tokens into Buzz. inspect_team lists
+github_credentials by name and each agent's github_credential assignment; it never
+returns token values. Linking a repository to a project does not grant GitHub access.
+Use configure_github_access(agent, credential) through execute_direct or an approved
+proposal to assign a pre-provisioned name; omit credential to revoke. A create_agent
+operation can include github_credential to provision access when creating the agent.
+Only grant access to agents requested by the owner, never every community member by
+default. The manager mounts the assigned token privately and configures HTTPS Git
+authentication. Agents can clone/fetch/push plain GitHub URLs without gh auth login
+or tokens in URLs. API clients can read GITHUB_TOKEN_FILE privately. The token's
+GitHub permissions determine actual repository access; do not claim assignment
+narrows a broad PAT's permissions. Rotate by provisioning a new name and reassigning.

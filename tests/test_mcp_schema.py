@@ -39,6 +39,7 @@ def test_project_operations_are_visible_and_serialized_in_mcp(monkeypatch):
                 "update_project",
                 "delete_project",
                 "configure_provider",
+                "configure_github_access",
                 "create_invite",
             ):
                 assert action in schema
