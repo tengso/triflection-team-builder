@@ -139,6 +139,9 @@ def render(config, secrets):
             ),
         ),
     }
+    dashboard = config.get("dashboard", {})
+    if dashboard.get("enabled"):
+        services["manager"]["ports"] = [f"{dashboard['bind']}:{dashboard['port']}:8089"]
     return yaml.safe_dump(
         {
             "name": project,

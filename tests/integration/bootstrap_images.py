@@ -126,6 +126,30 @@ def main():
             print(run(*command), flush=True)
             assert json.loads((state / "config.json").read_text()) == before
             assert before["runtime_image"] == before["images"]["hermes"]
+            dashboard_key = directory / "dashboard.key"
+            print(
+                run(
+                    sys.executable,
+                    "-m",
+                    "team_builder.cli",
+                    "dashboard",
+                    "enable",
+                    "--state-dir",
+                    str(state),
+                    "--key-output",
+                    str(dashboard_key),
+                ),
+                flush=True,
+            )
+            print(
+                run(
+                    sys.executable,
+                    str(Path(__file__).with_name("dashboard.py")),
+                    str(state),
+                    str(dashboard_key),
+                ),
+                flush=True,
+            )
             if os.environ.get("EXERCISE_MANAGEMENT") == "1":
                 script = Path(__file__).with_name("community_operations.py").read_text()
                 script += "\nexercise(" + repr(owner.read_text()) + ")\n"
@@ -147,6 +171,15 @@ def main():
                     # Script assertions contain only sanitized operation results.
                     raise RuntimeError(result.stdout + result.stderr)
                 print(result.stdout, flush=True)
+            print(
+                run(
+                    sys.executable,
+                    str(Path(__file__).with_name("dashboard.py")),
+                    str(state),
+                    str(dashboard_key),
+                ),
+                flush=True,
+            )
             print(
                 "PASS: published image bootstrap, gateway readiness, and identity-preserving resume",
                 flush=True,

@@ -228,3 +228,55 @@ validation results are in `docs/validation.md`.
 
 Local `vm-repair/` artifacts are retained as historical recovery material and
 excluded from publication. The new package does not import or run the old builder.
+
+## Mission Control (read-only)
+
+Mission Control shows one community's agents, services, channels, projects,
+repository announcements, operation outcomes, and recent activity metadata.
+It does not change the community or approve commands. Management stays in Buzz
+and host maintenance stays in Docker Compose.
+
+On the Linux host, after installing/upgrading to v0.4.0:
+
+```bash
+team-builder dashboard enable
+team-builder dashboard status
+```
+
+The enable command prints a separate owner access key once. Open the printed
+URL on your private network (normally the community hostname on port `3101`)
+and sign in. Only the key verifier is stored in installation state. Existing
+installations keep the dashboard disabled until explicitly enabled. Fresh setup
+also supports `team-builder init --dashboard`.
+
+```bash
+# Optional address/port and private one-time key delivery file:
+team-builder dashboard enable --bind 0.0.0.0 --port 3101 --key-output ~/mission-control.key
+team-builder dashboard rotate-key --key-output ~/mission-control-new.key
+team-builder dashboard disable
+```
+
+All commands accept `--state-dir`. Rotation immediately invalidates dashboard
+sessions; sessions also expire after eight hours or a manager restart. Re-running
+enable preserves an existing key. Use rotation if it was lost. Enabling/disabling
+recreates only the manager when its published port changes; identities and
+workspaces are preserved. The internal management/MCP port is never published.
+
+Observations refresh every five seconds and are marked stale after fifteen
+seconds without a new snapshot. Container state, Docker health, the gateway's
+live event-loop probe, and Buzz connection state are separate observations.
+Hermes' state-change timestamp can legitimately be old for an idle gateway.
+Unavailable data is shown as unknown; channel/project registry records are
+labelled separately from signed Buzz readbacks. The community view covers
+managed channels/projects plus the authoritative community membership roster.
+
+Recent message/tool entries show metadata only. Logs contain recognized,
+sanctioned diagnostic summaries from the last 100 container log lines; commands,
+transcripts, credentials, and arbitrary output are omitted. Inspect full logs
+locally with Compose when deeper troubleshooting is needed. Metric samples stay
+in memory for at most an hour and reset with the manager. Existing operation
+history has no timestamps, so its ordering is by original registry insertion.
+
+This version supports private-network HTTP, a single owner access key, and one
+installation. Keep the dashboard on a trusted private network. It has no terminal,
+restart controls, credential editor, transcript viewer, or automatic recovery.

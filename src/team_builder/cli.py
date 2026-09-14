@@ -377,6 +377,24 @@ def parser():
         description="Bootstrap a Buzz community managed by Chief of Agents"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    dashboard = sub.add_parser("dashboard", help="Configure read-only Mission Control")
+    dashboard_sub = dashboard.add_subparsers(dest="dashboard_command", required=True)
+    for action in ("enable", "status", "disable", "rotate-key"):
+        item = dashboard_sub.add_parser(action)
+        item.add_argument(
+            "--state-dir",
+            default=os.environ.get(
+                "TEAM_BUILDER_STATE_DIR", "~/.local/state/team-builder/default"
+            ),
+        )
+        if action == "enable":
+            item.add_argument("--bind")
+            item.add_argument("--port", type=int)
+        if action in ("enable", "rotate-key"):
+            item.add_argument(
+                "--key-output",
+                help="Write the one-time key to a new private file instead of stdout",
+            )
     upgrade = sub.add_parser(
         "upgrade", help="Update the runtime while preserving community state"
     )
@@ -460,12 +478,22 @@ def parser():
         "--port", type=int, default=int(os.environ.get("TEAM_BUILDER_PORT", "3100"))
     )
     command.add_argument("--non-interactive", action="store_true")
+    command.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Enable read-only Mission Control after setup",
+    )
     return parser
 
 
 def main():
     args = parser().parse_args()
     try:
+        if args.command == "dashboard":
+            from .dashboard_access import command
+
+            command(args)
+            return
         if args.command == "upgrade":
             from .upgrade import upgrade
 
@@ -560,6 +588,23 @@ with httpx.Client(trust_env=False,timeout=900) as client:
         if args.base_url and args.provider != "custom":
             raise ValueError("Use --provider custom when supplying --base-url")
         init(args)
+        if getattr(args, "dashboard", False):
+            from .dashboard_access import command
+
+            command(
+                argparse.Namespace(
+                    state_dir=args.state_dir,
+                    dashboard_command="enable",
+                    bind=None,
+                    port=None,
+                    key_output=None,
+                )
+            )
+        elif not args.non_interactive:
+            print(
+                "Optional: enable read-only Mission Control with team-builder dashboard enable --state-dir "
+                + args.state_dir
+            )
     except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         message = (
             str(exc)

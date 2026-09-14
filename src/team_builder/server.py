@@ -98,6 +98,10 @@ def serve(manager, address=("0.0.0.0", 8088)):
 def main():
     manager = Manager(os.environ.get("TEAM_BUILDER_STATE", "/state"))
 
+    from .dashboard import start
+
+    start(manager)
+
     def bootstrap():
         while True:
             try:
