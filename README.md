@@ -229,7 +229,7 @@ validation results are in `docs/validation.md`.
 Local `vm-repair/` artifacts are retained as historical recovery material and
 excluded from publication. The new package does not import or run the old builder.
 
-## Mission Control (read-only)
+## Mission Control
 
 Mission Control shows one community's agents, services, channels, projects,
 repository announcements, operation outcomes, and recent activity metadata.
@@ -279,4 +279,12 @@ history has no timestamps, so its ordering is by original registry insertion.
 
 This version supports private-network HTTP, a single owner access key, and one
 installation. Keep the dashboard on a trusted private network. It has no terminal,
-restart controls, credential editor, transcript viewer, or automatic recovery.
+credential editor, transcript viewer, or automatic recovery.
+
+In **Agents**, open an agent and choose **Restart agent…**. Owner confirmation
+restarts its existing container, interrupting active work and any app servers
+inside it while retaining identity, configuration, history, and workspace files.
+Only agents with running desired state can restart; stopped, archived, and missing
+agents must be handled through Buzz or Compose. The result confirms the container
+restart; watch gateway and Buzz health separately for reconnection. Outcomes appear
+in Activity. All other community changes remain in Buzz.

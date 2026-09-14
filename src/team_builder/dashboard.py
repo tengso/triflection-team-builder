@@ -1,7 +1,9 @@
-"""Mission Control listener: read-only API, static UI, and owner sessions."""
+"""Mission Control observations, owner sessions, and scoped agent restart."""
 
 import json
+import re
 import threading
+import uuid
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -114,8 +116,12 @@ def serve(observer, address=("0.0.0.0", 8089)):
                 self.reply(200, result)
 
         def do_POST(self):
-            if self.path not in (PREFIX + "/login", PREFIX + "/logout"):
-                self.reply(405, {"error": "Mission Control is read-only"})
+            restart = re.fullmatch(
+                re.escape(PREFIX) + r"/agents/([a-z0-9][a-z0-9_-]{0,63})/restart",
+                self.path,
+            )
+            if not restart and self.path not in (PREFIX + "/login", PREFIX + "/logout"):
+                self.reply(405, {"error": "Unsupported dashboard action"})
                 return
             # Requiring a browser Origin blocks cross-origin login and logout.
             if (
@@ -124,11 +130,27 @@ def serve(observer, address=("0.0.0.0", 8089)):
             ):
                 self.reply(403, {"error": "Same-origin JSON request required"})
                 return
+            if restart and not access.valid(self.session()):
+                self.reply(401, {"error": "Owner sign-in required"})
+                return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= 1024 or self.headers.get("Transfer-Encoding"):
                     raise ValueError("Invalid body")
                 body = json.loads(self.rfile.read(length))
+                if restart:
+                    if (
+                        not isinstance(body, dict)
+                        or set(body) != {"request_id"}
+                        or not isinstance(body["request_id"], str)
+                    ):
+                        raise ValueError("Invalid body")
+                    request_id = str(uuid.UUID(body["request_id"]))
+                    status, result = observer.manager.dashboard_restart(
+                        restart[1], request_id
+                    )
+                    self.reply(status, result)
+                    return
                 if self.path == PREFIX + "/logout":
                     if body != {}:
                         raise ValueError("Invalid body")
@@ -161,6 +183,13 @@ def serve(observer, address=("0.0.0.0", 8089)):
                 )
             except (ValueError, OSError):
                 self.reply(400, {"error": "Invalid request"})
+            except Exception:  # noqa: BLE001 -- contain private internal diagnostics
+                self.reply(
+                    503,
+                    {
+                        "error": "Dashboard operation unavailable; inspect health before retrying"
+                    },
+                )
 
         def do_PUT(self):
             self.reply(405, {"error": "Mission Control is read-only"})

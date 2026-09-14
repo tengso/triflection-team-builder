@@ -421,3 +421,117 @@ def test_credentials_never_enter_compose_on_rotation(manager, monkeypatch, tmp_p
     assert key not in (manager.root / "dashboard-auth.json").read_text()
     with pytest.raises(ValueError):
         provision(manager.root, delivery)
+
+
+def test_restart_owner_boundary_and_retry(observer, monkeypatch):
+    import uuid
+
+    calls = []
+    monkeypatch.setattr(observer.manager.docker, "restart", calls.append, raising=False)
+    key = provision(observer.root)
+    server = serve(observer, ("127.0.0.1", 0))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        origin = f"http://127.0.0.1:{server.server_port}"
+        path = PREFIX + "/agents/coa/restart"
+        body = {"request_id": str(uuid.uuid4())}
+        with httpx.Client(base_url=origin, trust_env=False) as client:
+            assert (
+                client.post(path, json=body, headers={"Origin": origin}).status_code
+                == 401
+            )
+            client.post(
+                PREFIX + "/login", json={"key": key}, headers={"Origin": origin}
+            )
+            assert (
+                client.post(
+                    path, json=body, headers={"Origin": "http://evil"}
+                ).status_code
+                == 403
+            )
+            assert (
+                client.post(
+                    path, json={"request_id": "bad"}, headers={"Origin": origin}
+                ).status_code
+                == 400
+            )
+            for _ in range(2):
+                result = client.post(path, json=body, headers={"Origin": origin})
+                assert result.status_code == 200
+                assert result.json()["status"] == "restarted"
+            assert calls == ["tb-test-agent-coa"]
+            assert (
+                client.post(
+                    PREFIX + "/agents/other/restart",
+                    json=body,
+                    headers={"Origin": origin},
+                ).status_code
+                == 404
+            )
+            agent = observer.manager.resource("coa", "agent")
+            agent["state"] = "archived"
+            observer.manager.save_agent(agent)
+            assert (
+                client.post(
+                    path,
+                    json={"request_id": str(uuid.uuid4())},
+                    headers={"Origin": origin},
+                ).status_code
+                == 409
+            )
+            provision(observer.root)
+            assert (
+                client.post(path, json=body, headers={"Origin": origin}).status_code
+                == 401
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_restart_failure_is_sanitized_and_not_replayed(manager, monkeypatch):
+    import uuid
+
+    calls = []
+
+    def fail(name):
+        calls.append(name)
+        raise RuntimeError("private-secret")
+
+    monkeypatch.setattr(manager.docker, "restart", fail, raising=False)
+    identifier = str(uuid.uuid4())
+    status, result = manager.dashboard_restart("coa", identifier)
+    assert status == 503 and "private-secret" not in json.dumps(result)
+    assert manager.dashboard_restart("coa", identifier)[0] == 409
+    assert len(calls) == 1
+
+
+def test_docker_restart_uses_verified_container_id():
+    from team_builder.docker import Docker
+
+    docker = Docker("mine")
+    calls = []
+
+    def transport(request):
+        calls.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "Id": "verified-id",
+                    "Config": {"Labels": {"io.team-builder.project": "other"}},
+                },
+            )
+        return httpx.Response(204)
+
+    docker.client.close()
+    docker.client = httpx.Client(
+        transport=httpx.MockTransport(transport), base_url="http://docker"
+    )
+    with pytest.raises(ValueError):
+        docker.restart("foreign")
+    assert len(calls) == 1
+    docker.inspect = lambda name: {"Id": "verified-id"}
+    docker.restart("mine-agent-coa")
+    assert calls[-1] == ("POST", "/v1.45/containers/verified-id/restart")
+    docker.client.close()

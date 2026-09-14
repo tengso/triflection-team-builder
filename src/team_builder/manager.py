@@ -201,6 +201,53 @@ class Manager:
         agent["state"] = "running"
         self.save_agent(agent)
 
+    def dashboard_restart(self, identifier, request_id):
+        """Called only by the dashboard's authenticated owner session boundary."""
+        if not self.lock.acquire(blocking=False):
+            return 409, {"error": "Another management operation is active; retry later"}
+        try:
+            agent = self.registry.get("agent/" + identifier)
+            if not agent:
+                return 404, {"error": "Unknown managed agent"}
+            if agent["state"] != "running":
+                return 409, {
+                    "error": "Only agents with running desired state can be restarted"
+                }
+            operation_id = "dashboard-restart:" + request_id
+            operation = {
+                "action": "restart_agent",
+                "id": identifier,
+                "actor": self.config["owner"],
+                "source": "dashboard",
+            }
+            try:
+                previous = self.registry.operation(operation_id, operation)
+            except ValueError:
+                return 409, {"error": "Request ID already belongs to another operation"}
+            if previous["state"] == "done":
+                return 200, json.loads(previous["result"])
+            if "result" in previous:
+                return 409, {
+                    "error": "Restart outcome is failed or uncertain; inspect health before submitting a new request"
+                }
+            try:
+                self.docker.restart(self.name(agent))
+            except Exception:  # noqa: BLE001 -- never expose Docker diagnostics to dashboard
+                result = {
+                    "error": "Restart could not be confirmed. Inspect agent health before retrying."
+                }
+                self.registry.outcome(operation_id, "failed", result)
+                return 503, result
+            result = {
+                "id": identifier,
+                "status": "restarted",
+                "message": "Container restarted. Gateway and Buzz reconnection are still being observed.",
+            }
+            self.registry.outcome(operation_id, "done", result)
+            return 200, result
+        finally:
+            self.lock.release()
+
     def apply(self, op):
         action = op["action"]
         if action == "configure_github_access":
