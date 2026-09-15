@@ -234,14 +234,14 @@ class Manager:
                 self.docker.restart(self.name(agent))
             except Exception:  # noqa: BLE001 -- never expose Docker diagnostics to dashboard
                 result = {
-                    "error": "Restart could not be confirmed. Inspect agent health before retrying."
+                    "error": "Gateway restart could not be confirmed. Check agent health and ensure its runtime supports gateway-only restart. The container was not restarted."
                 }
                 self.registry.outcome(operation_id, "failed", result)
                 return 503, result
             result = {
                 "id": identifier,
                 "status": "restarted",
-                "message": "Container restarted. Gateway and Buzz reconnection are still being observed.",
+                "message": "Gateway restarted; the container and detached app processes were kept running. Buzz reconnection is still being observed.",
             }
             self.registry.outcome(operation_id, "done", result)
             return 200, result

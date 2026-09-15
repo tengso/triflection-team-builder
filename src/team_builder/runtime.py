@@ -114,6 +114,14 @@ def render(config, secrets, agent):
             "GitHub CLI is not required for git access. A repository announcement does not "
             "grant GitHub permissions; report authentication failures without revealing secrets."
         )
+    soul += (
+        "\n\nFor persistent app servers, launch detached from the terminal with stdin from "
+        "/dev/null and stdout/stderr redirected to a log in /work (for example: "
+        "nohup command > /work/app.log 2>&1 < /dev/null &). Gateway-only restart "
+        "preserves detached processes, but attached pipes/PTYs and active turns may "
+        "be interrupted. Check existing listeners before starting another instance. "
+        "Container restart, stop, or upgrade still stops all processes."
+    )
     return document, env, soul
 
 

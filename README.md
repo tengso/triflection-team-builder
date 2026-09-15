@@ -282,9 +282,26 @@ installation. Keep the dashboard on a trusted private network. It has no termina
 credential editor, transcript viewer, or automatic recovery.
 
 In **Agents**, open an agent and choose **Restart agent…**. Owner confirmation
-restarts its existing container, interrupting active work and any app servers
-inside it while retaining identity, configuration, history, and workspace files.
-Only agents with running desired state can restart; stopped, archived, and missing
-agents must be handled through Buzz or Compose. The result confirms the container
-restart; watch gateway and Buzz health separately for reconnection. Outcomes appear
-in Activity. All other community changes remain in Buzz.
+restarts only the Hermes gateway, keeping the container and detached app servers
+running. Active agent turns, unsaved in-memory work, and attached terminal/PTY
+sessions can be interrupted. Identity, configuration, history, and workspace files
+are retained. Gateway restart bypasses Hermes' shutdown cleanup by terminating only
+the gateway PID; it does not signal its process group or other app processes.
+
+For app servers that must survive, launch them detached with their own log files:
+
+```sh
+nohup .venv/bin/streamlit run app.py --server.address 0.0.0.0 --server.port 18502 \
+  > /work/streamlit.log 2>&1 < /dev/null &
+```
+
+Check existing listeners before relaunching apps after a gateway restart. Tool
+process handles owned by the previous gateway are not restored. A full container
+restart, stop, archive, image upgrade, or VM shutdown still stops all its processes.
+
+Existing worker containers need a one-time runtime upgrade/container recreation to
+install the stable supervisor. Schedule this when app interruption is acceptable.
+The dashboard never falls back to restarting an old container; it reports that a
+runtime upgrade is required. Only agents with running desired state can restart.
+Watch gateway and Buzz health separately for reconnection; the result confirms the
+new gateway process was launched, not that it is ready. Outcomes appear in Activity.

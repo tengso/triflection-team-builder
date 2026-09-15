@@ -42,12 +42,18 @@ class Docker:
         observed = self.inspect(name)
         if not observed:
             raise ValueError("Agent container is missing")
-        # Use the verified immutable ID, not a name that could be reassigned.
-        result = self.call(
-            "POST", f"/containers/{quote(observed['Id'], safe='')}/restart?t=20"
+        if not observed.get("State", {}).get("Running"):
+            raise ValueError("Agent container is not running")
+        # No container-restart fallback: older workers must be upgraded explicitly.
+        self.exec(
+            observed["Id"],
+            [
+                "/opt/hermes/.venv/bin/python",
+                "-m",
+                "team_builder.worker_supervisor",
+                "restart",
+            ],
         )
-        if result is None:
-            raise RuntimeError("Agent container disappeared during restart")
 
     def ensure(self, name, spec, generation):
         observed = self.inspect(name)

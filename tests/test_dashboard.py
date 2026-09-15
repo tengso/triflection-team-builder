@@ -506,7 +506,7 @@ def test_restart_failure_is_sanitized_and_not_replayed(manager, monkeypatch):
     assert len(calls) == 1
 
 
-def test_docker_restart_uses_verified_container_id():
+def test_docker_restart_uses_scoped_exec_not_container_restart():
     from team_builder.docker import Docker
 
     docker = Docker("mine")
@@ -531,7 +531,24 @@ def test_docker_restart_uses_verified_container_id():
     with pytest.raises(ValueError):
         docker.restart("foreign")
     assert len(calls) == 1
-    docker.inspect = lambda name: {"Id": "verified-id"}
+    docker.inspect = lambda name: {"Id": "verified-id", "State": {"Running": True}}
+    executed = []
+    docker.exec = lambda name, argv: executed.append((name, argv))
     docker.restart("mine-agent-coa")
-    assert calls[-1] == ("POST", "/v1.45/containers/verified-id/restart")
+    assert executed == [
+        (
+            "verified-id",
+            [
+                "/opt/hermes/.venv/bin/python",
+                "-m",
+                "team_builder.worker_supervisor",
+                "restart",
+            ],
+        )
+    ]
+    assert len(calls) == 1
+    docker.inspect = lambda name: {"Id": "verified-id", "State": {"Running": False}}
+    with pytest.raises(ValueError):
+        docker.restart("mine-agent-coa")
+    assert len(executed) == 1
     docker.client.close()

@@ -74,6 +74,16 @@ def health():
 def main():
     if sys.argv[1:] == ["health"]:
         raise SystemExit(0 if health() else 1)
+    if sys.argv[1:] == ["restart"]:
+        from .worker_supervisor import request_restart
+
+        try:
+            request_restart()
+        except (OSError, ValueError, RuntimeError):
+            raise SystemExit(
+                "Gateway supervisor unavailable; a runtime upgrade is required"
+            ) from None
+        return
     if os.getuid() != 10000:
         raise SystemExit("Workers must run as UID 10000")
     home = Path("/home/hermes/.hermes")
@@ -102,9 +112,16 @@ def main():
             f"Refreshed managed capabilities for {refreshed} continuing sessions",
             flush=True,
         )
-    os.execve(
-        "/opt/hermes/.venv/bin/hermes",
-        ["hermes", "gateway", "run", "--no-supervise", "--external-supervisor"],
+    from .worker_supervisor import supervise
+
+    supervise(
+        [
+            "/opt/hermes/.venv/bin/hermes",
+            "gateway",
+            "run",
+            "--no-supervise",
+            "--external-supervisor",
+        ],
         env,
     )
 
