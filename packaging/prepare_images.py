@@ -58,6 +58,11 @@ def main():
             ):
                 raise RuntimeError("Buzz compatibility patch was not applied")
             source["patch_sha256"] = hashlib.sha256(patch.read_bytes()).hexdigest()
+            internal_patch = root / "packaging/patches/buzz-internal-relay.patch"
+            apply_source_patch(destination, internal_patch)
+            source["internal_relay_patch_sha256"] = hashlib.sha256(
+                internal_patch.read_bytes()
+            ).hexdigest()
         else:
             builder = destination / "team-builder"
             builder.mkdir()

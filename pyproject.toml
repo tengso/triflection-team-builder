@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "buzz-team-builder"
-version = "0.4.0"
+version = "0.5.0"
 description = "Bootstrap a conversational Buzz team managed by Chief of Agents"
 requires-python = ">=3.12"
 dependencies = ["httpx>=0.27,<1", "coincurve>=20,<22", "PyYAML>=6,<7", "bech32>=1.2,<2", "mcp>=1.10,<2"]

@@ -152,3 +152,15 @@ live language-model conversation.
 - Live Cody deployment MCP and COA management schema verified. Agent container IDs, identities and channel memberships preserved; UAT health on 18502 still HTTP 200.
 - This deployment uses a locally built pinned application image and local manager image; no new public image release was published.
 - Production authentication/data configuration remains pending: the UAT checkout did not contain database credentials or users.yaml. Production dev-mode bypass is disabled. Container health is not evidence of working database access or user login.
+
+## Separate client and internal URLs — 2026-09-17
+
+- Python regression suite: 142 tests passed; Ruff checks and formatting passed.
+- Built isolated Linux Buzz and manager/agent images with the internal-relay capability. Existing published image defaults were not changed.
+- Fresh Compose bootstrap and identity-preserving resume passed with client URL `http://127.0.0.1:3340`, internal URL `http://relay:3000`, and server bind `127.0.0.1:3310`. No client tunnel was running during bootstrap.
+- A temporary TCP tunnel from client port 3340 to server port 3310 passed public join-policy discovery and signed owner channel/registration queries. Authenticated community queries using an unknown host were rejected. Join policy itself is public deployment configuration.
+- Internal HTTP and WebSocket authentication passed. Requests signed for the client origin were rejected on the internal origin; both routes retained the same authoritative community memberships.
+- Internal invitation creation and a signed PNG upload returned client-facing invitation/media URLs.
+- Dashboard authentication, gateway responsiveness, authoritative community readback, and secret-isolation checks passed in the temporary deployment.
+- Configuration reload, skill changes, conflict/rollback handling, manager restart persistence, and detached application retention passed. The test deployment was removed; existing live container IDs remained unchanged.
+- Test image IDs: Buzz `sha256:2d1bbee2b79df37bd53ceac586774670ef8f842ee9b3001c8364bfac7825a2a4`; runtime `sha256:c2cba7c2a48e4c1d631ae8600e42169c76e57ddedd3e34c5916d7e649bea7685`. These are local validation builds, not a new public release or a live deployment upgrade.

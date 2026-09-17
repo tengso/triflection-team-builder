@@ -106,7 +106,11 @@ def main():
                     "--name",
                     "Image Smoke Test",
                     "--advertised-url",
-                    "http://image-test.local:3310",
+                    "http://127.0.0.1:3340",
+                    "--internal-url",
+                    "http://relay:3000",
+                    "--bind",
+                    "127.0.0.1",
                     "--port",
                     "3310",
                     "--model",
@@ -126,6 +130,30 @@ def main():
             print(run(*command), flush=True)
             assert json.loads((state / "config.json").read_text()) == before
             assert before["runtime_image"] == before["images"]["hermes"]
+            from network_tunnel import exercise as exercise_tunnel
+
+            exercise_tunnel(state, owner.read_text().strip())
+            internal_script = Path(__file__).with_name("internal_relay.py").read_text()
+            internal_test = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    "-i",
+                    before["project"] + "-manager-1",
+                    "/opt/hermes/.venv/bin/python",
+                    "-",
+                ],
+                input=internal_script
+                + "\nexercise("
+                + repr(owner.read_text().strip())
+                + ")\n",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if internal_test.returncode:
+                raise RuntimeError(internal_test.stdout + internal_test.stderr)
+            print(internal_test.stdout, flush=True)
             dashboard_key = directory / "dashboard.key"
             print(
                 run(

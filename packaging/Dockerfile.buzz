@@ -21,7 +21,8 @@ ARG SOURCE_REVISION
 LABEL org.opencontainers.image.source="https://github.com/tengso/triflection-team-builder" \
     org.opencontainers.image.revision=$SOURCE_REVISION \
     org.opencontainers.image.description="Buzz relay and CLI for Triflection Team Builder" \
-    org.opencontainers.image.licenses="Apache-2.0"
+    org.opencontainers.image.licenses="Apache-2.0" \
+    io.team-builder.internal-relay="1"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libssl3t64 libgcc-s1 git bash curl \
     && rm -rf /var/lib/apt/lists/* \

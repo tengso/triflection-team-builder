@@ -16,7 +16,7 @@ def render(config, secrets, agent):
     coa = agent["id"] == "coa"
     channel_ids = agent["channel_ids"]
     extra = {
-        "relay_url": config["advertised_url"],
+        "relay_url": config.get("internal_url") or config["advertised_url"],
         "channels": channel_ids,
         "home_channel": channel_ids[0] if channel_ids else "",
         "cli_path": "/usr/local/bin/buzz",
@@ -71,7 +71,7 @@ def render(config, secrets, agent):
         "TEAM_BUILDER_OWNER": config["owner"],
         "BUZZ_PRIVATE_KEY": agent["secret"],
         "BUZZ_AUTH_TAG": wire(agent["auth_tag"]).decode(),
-        "BUZZ_RELAY_URL": config["advertised_url"],
+        "BUZZ_RELAY_URL": config.get("internal_url") or config["advertised_url"],
         "BUZZ_ALLOW_ALL_USERS": "true",
         "OPENROUTER_API_KEY"
         if config["provider"] == "openrouter"
@@ -338,9 +338,10 @@ def start_agent(root, config, secrets, agent, docker):
         ipaddress.ip_address(hostname)
     except ValueError:
         bind = config.get("bind", "0.0.0.0")
-        spec["HostConfig"]["ExtraHosts"] = [
-            hostname + ":" + ("host-gateway" if bind == "0.0.0.0" else bind)
-        ]
+        if not config.get("internal_url"):
+            spec["HostConfig"]["ExtraHosts"] = [
+                hostname + ":" + ("host-gateway" if bind == "0.0.0.0" else bind)
+            ]
     docker.ensure(
         config["project"] + "-agent-" + agent["id"],
         spec,

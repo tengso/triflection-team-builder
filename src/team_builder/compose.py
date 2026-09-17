@@ -54,6 +54,8 @@ def render(config, secrets):
         "BUZZ_COMMUNITY_DESCRIPTION": "Managed by Chief of Agents",
         "BUZZ_EXTERNAL_REPOS_ONLY": "true",
     }
+    if config.get("internal_url"):
+        relay_env["BUZZ_INTERNAL_RELAY_URL"] = config["internal_url"]
     services = {
         "postgres": service(
             images["postgres"],

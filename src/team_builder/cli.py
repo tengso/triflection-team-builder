@@ -52,7 +52,27 @@ def required(value, label, noninteractive, hidden=False):
     return value
 
 
-def validate_network(endpoint, bind, port):
+def validate_network(endpoint, bind, port, internal_url=None):
+    validate_origin(endpoint)
+    if not 1 <= port <= 65535:
+        raise ValueError("--port must be between 1 and 65535")
+    if internal_url:
+        validate_origin(internal_url, internal=True)
+    url = urlsplit(endpoint)
+    if not internal_url and (url.port or 80) != port:
+        raise ValueError(
+            "The advertised URL port must match --port unless --internal-url is set"
+        )
+    address = ipaddress.ip_address(bind)
+    if address.version != 4 or (address.is_loopback and not internal_url):
+        raise ValueError(
+            "--bind must be an IPv4 address; loopback requires --internal-url so agents can reach the relay"
+        )
+    if not internal_url:
+        validate_origin(endpoint, internal=True)
+
+
+def validate_origin(endpoint, *, internal=False):
     url = urlsplit(endpoint)
     if (
         url.scheme != "http"
@@ -62,28 +82,45 @@ def validate_network(endpoint, bind, port):
         or url.path not in ("", "/")
         or url.query
         or url.fragment
+        or url.port == 0
     ):
         raise ValueError(
             "Use an http://host:port URL without credentials, path, query, or fragment"
         )
-    if (url.port or 80) != port:
-        raise ValueError("The advertised URL port must match --port")
-    address = ipaddress.ip_address(bind)
-    if address.version != 4 or address.is_loopback:
+    if internal and url.hostname.lower().rstrip(".") == "localhost":
         raise ValueError(
-            "--bind must be a private-network IPv4 address or 0.0.0.0 so agent containers can reach the relay"
-        )
-    if url.hostname.lower() == "localhost":
-        raise ValueError(
-            "Advertise a private-network hostname or address, not localhost"
+            "Agents cannot connect to localhost; set --internal-url http://relay:3000 for a client tunnel"
         )
     try:
         advertised = ipaddress.ip_address(url.hostname)
     except ValueError:
         return
-    if advertised.version != 4 or advertised.is_loopback or advertised.is_unspecified:
+    if (
+        advertised.version != 4
+        or advertised.is_unspecified
+        or advertised.is_multicast
+        or (internal and advertised.is_loopback)
+    ):
         raise ValueError(
-            "Advertise a reachable private-network IPv4 address or hostname"
+            "Use a reachable IPv4 address or hostname; a client loopback URL requires --internal-url http://relay:3000"
+        )
+
+
+def require_internal_relay_image(image):
+    marker = run(
+        [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            '{{index .Config.Labels "io.team-builder.internal-relay"}}',
+            image,
+        ]
+    )
+    if marker != "1":
+        raise ValueError(
+            "Separate client/internal URLs require updated Buzz and Team Builder runtime images "
+            "with io.team-builder.internal-relay=1; supply --buzz-image and --runtime-image"
         )
 
 
@@ -217,9 +254,13 @@ def initialize(root, args):
             ("name", "name"),
             ("advertised_url", "advertised_url"),
             ("model", "model"),
+            ("internal_url", "internal_url"),
         ):
-            value = getattr(args, flag)
-            if value and value != config[field]:
+            value = getattr(args, flag, None)
+            saved = config.get(field)
+            if field.endswith("_url") and value:
+                value, saved = value.rstrip("/"), (saved or "").rstrip("/")
+            if value and value != saved:
                 raise ValueError(
                     "Existing installation settings differ; use a separate state directory"
                 )
@@ -231,7 +272,8 @@ def initialize(root, args):
             "Advertised URL, e.g. http://ubuntu.orb.local:3100",
             args.non_interactive,
         )
-        validate_network(endpoint, args.bind, args.port)
+        internal_url = getattr(args, "internal_url", None)
+        validate_network(endpoint, args.bind, args.port, internal_url)
         model = required(args.model, "Default model", args.non_interactive)
         supplied = (
             Path(args.owner_key_file).read_text() if args.owner_key_file else None
@@ -267,6 +309,9 @@ def initialize(root, args):
         runtime_image = prepare_runtime(
             images["hermes"], custom_base=bool(args.hermes_image)
         )
+        if internal_url:
+            require_internal_relay_image(images["relay"])
+            require_internal_relay_image(runtime_image)
         identifier = str(uuid.uuid4())
         stored = {
             **{k: key() for k in ("admin", "coa", "relay")},
@@ -295,9 +340,23 @@ def initialize(root, args):
             "images": images,
             "runtime_image": runtime_image,
         }
+        if internal_url:
+            config["internal_url"] = internal_url.rstrip("/")
         # Secrets are written first: config.json is the durable commit marker for an installation.
         private_write(root / "secrets.json", stored)
         private_write(root / "config.json", config)
+    if config.get("internal_url"):
+        validate_network(
+            config["advertised_url"],
+            config["bind"],
+            config["port"],
+            config["internal_url"],
+        )
+        require_internal_relay_image(config["images"]["relay"])
+        require_internal_relay_image(
+            config.get("manager_image", config["runtime_image"])
+        )
+        require_internal_relay_image(config["runtime_image"])
     private_write(root / "compose.yaml", render(config, stored).encode())
     compose = ["docker", "compose", "-f", str(root / "compose.yaml")]
     print("Starting isolated Buzz services…", flush=True)
@@ -465,6 +524,7 @@ def parser():
         "state-dir",
         "name",
         "advertised-url",
+        "internal-url",
         "bind",
         "provider",
         "model",
@@ -478,6 +538,10 @@ def parser():
     ):
         command.add_argument(
             "--" + name,
+            help={
+                "advertised-url": "Client-facing community URL, including a localhost tunnel URL",
+                "internal-url": "Agent connection URL, normally http://relay:3000; enables separate client/server ports",
+            }.get(name),
             default=os.environ.get(
                 "TEAM_BUILDER_" + name.upper().replace("-", "_"), defaults.get(name)
             ),

@@ -1,5 +1,6 @@
 ARG HERMES_IMAGE
 FROM ${HERMES_IMAGE}
+LABEL io.team-builder.internal-relay="1"
 USER root
 COPY . /opt/team-builder
 RUN for wheel in /opt/team-builder/wheelhouse/pip-*.whl; do \

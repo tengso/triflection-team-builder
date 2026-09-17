@@ -1,0 +1,130 @@
+--- a/crates/buzz-relay/src/tenant.rs
++++ b/crates/buzz-relay/src/tenant.rs
+@@ -122,6 +122,38 @@
+ /// `buzz-admin` CLI derive a byte-identical authority (same port/IPv6 handling).
+ pub use buzz_core::tenant::relay_url_authority;
+ 
++/// One explicitly configured internal authority may resolve to this deployment's
++/// existing community. Keep the request authority in TenantContext: NIP-98 and
++/// NIP-42 signatures must still match the exact HTTP/WebSocket connection host.
++fn internal_community_host(host: &str, internal_url: &str, relay_url: &str) -> Option<String> {
++    let internal = url::Url::parse(internal_url).ok()?;
++    if internal.scheme() != "http"
++        || internal.host_str().is_none()
++        || !internal.username().is_empty()
++        || internal.password().is_some()
++        || !matches!(internal.path(), "" | "/")
++        || internal.query().is_some()
++        || internal.fragment().is_some()
++    {
++        return None;
++    }
++    if host.is_empty() || host != relay_url_authority(internal_url) {
++        return None;
++    }
++    let canonical = relay_url_authority(relay_url);
++    if canonical.is_empty() || canonical == host {
++        return None;
++    }
++    Some(canonical)
++}
++
++/// Public links always use the client-facing authority, even on an internal
++/// authenticated request. Authentication itself still uses TenantContext.host.
++pub(crate) fn client_facing_host(host: &str, relay_url: &str) -> String {
++    let internal = std::env::var("BUZZ_INTERNAL_RELAY_URL").unwrap_or_default();
++    internal_community_host(host, &internal, relay_url).unwrap_or_else(|| host.to_string())
++}
++
+ /// Production [`HostResolver`]: the relay resolves hosts against the durable
+ /// `communities` host map in Postgres.
+ ///
+@@ -138,10 +170,25 @@
+         &self,
+         normalized_host: &str,
+     ) -> Result<Option<CommunityId>, Self::Error> {
+-        Ok(self
+-            .lookup_community_by_host(normalized_host)
+-            .await?
+-            .map(|record| record.id))
++        let bound = self.lookup_community_by_host(normalized_host).await?;
++        let internal = std::env::var("BUZZ_INTERNAL_RELAY_URL").unwrap_or_default();
++        let canonical = std::env::var("RELAY_URL").unwrap_or_default();
++        let Some(host) = internal_community_host(normalized_host, &internal, &canonical) else {
++            return Ok(bound.map(|record| record.id));
++        };
++        let deployment = self.lookup_community_by_host(&host).await?;
++        // An internal alias may not override an existing different community.
++        // A missing canonical binding also fails closed.
++        Ok(deployment.and_then(|record| {
++            if bound
++                .as_ref()
++                .is_some_and(|existing| existing.id != record.id)
++            {
++                None
++            } else {
++                Some(record.id)
++            }
++        }))
+     }
+ }
+ 
+@@ -331,3 +378,33 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod internal_url_tests {
++    use super::*;
++
++    #[test]
++    fn only_explicit_internal_authority_aliases_the_deployment() {
++        let internal = "http://relay:3000";
++        let canonical = "ws://127.0.0.1:3400";
++        assert_eq!(
++            internal_community_host("relay:3000", internal, canonical),
++            Some("127.0.0.1:3400".to_string())
++        );
++        for unknown in ["", "relay:3400", "evil:3000", "127.0.0.1:3400"] {
++            assert_eq!(internal_community_host(unknown, internal, canonical), None);
++        }
++        for invalid in [
++            "",
++            "http://user:pass@relay:3000",
++            "http://relay:3000/path",
++            "ws://relay:3000",
++        ] {
++            assert_eq!(
++                internal_community_host("relay:3000", invalid, canonical),
++                None
++            );
++        }
++        assert_eq!(internal_community_host("relay:3000", internal, ""), None);
++    }
++}
+--- a/crates/buzz-relay/src/api/media.rs
++++ b/crates/buzz-relay/src/api/media.rs
+@@ -490,7 +490,10 @@
+     } else {
+         "http"
+     };
+-    format!("{scheme}://{tenant_host}/media")
++    format!(
++        "{scheme}://{}/media",
++        crate::tenant::client_facing_host(tenant_host, config_relay_url)
++    )
+ }
+ 
+ fn rewrite_descriptor_urls_for_tenant(
+--- a/crates/buzz-relay/src/api/invites.rs
++++ b/crates/buzz-relay/src/api/invites.rs
+@@ -348,7 +348,7 @@
+         "expires_at": expires_at_unix,
+         "max_uses": invite.max_uses,
+         "uses_remaining": invite.uses_remaining,
+-        "url": format!("{scheme}://{}/invite/{}", tenant.host(), invite.code),
++        "url": format!("{scheme}://{}/invite/{}", crate::tenant::client_facing_host(tenant.host(), &state.config.relay_url), invite.code),
+     })))
+ }
+ 

@@ -65,6 +65,12 @@ The published image digests, rather than a claim of byte-identical future rebuil
 are the installation reproducibility boundary.
 
 The Buzz patch preserves the tested metadata and external-repository behavior.
+`buzz-internal-relay.patch` adds an explicit internal authority for the same
+community while preserving host-bound HTTP/WebSocket authentication and rejecting
+unknown hosts. `prepare_images.py` applies both patches and records their hashes.
+New Buzz and Hermes images carry `io.team-builder.internal-relay=1`; the CLI
+checks this capability when separate client/internal URLs are requested. Previously
+published image digests do not gain this capability automatically.
 The Hermes patch in `src/team_builder/resources/patch_hermes.py` supplies verified
 message context to COA and enables owner messages in its office without mentions.
 Patches fail on incompatible upstream source instead of silently dropping behavior.

@@ -49,6 +49,52 @@ instead; this explicitly enables the local compatibility build. Existing
 installations keep their saved images when resumed. Image source pins, publishing,
 and release validation are documented in [packaging/README.md](packaging/README.md).
 
+### Client tunnels and internal agent connections
+
+`--advertised-url` is the client-facing community URL, including the address used
+in discovery and media links. `--internal-url` optionally supplies a separate
+agent connection URL; for this Compose installation use `http://relay:3000`.
+`--bind` and `--port` control the server's published socket independently.
+
+These options require the CLI from this checkout (`pip install .`) and newly
+built Buzz/runtime images; the published 0.1.0 installer does not include them.
+For a client that can reach the server only through an SSH tunnel, initialize on
+the Linux server with compatible images:
+
+```sh
+team-builder init \
+  --advertised-url http://127.0.0.1:3400 \
+  --internal-url http://relay:3000 \
+  --bind 127.0.0.1 --port 3100 \
+  --buzz-image YOUR_UPDATED_BUZZ_IMAGE \
+  --runtime-image YOUR_UPDATED_HERMES_IMAGE
+```
+
+On the workstation, keep this tunnel open and join `http://127.0.0.1:3400` in Buzz:
+
+```sh
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:3400:127.0.0.1:3100 ubuntu@ubuntu.orb.local
+```
+
+Replace the SSH destination for another server. Each client needs its own tunnel
+using the advertised local port. Agents connect directly over Docker networking
+and keep working when a workstation's tunnel closes. The server can publish only
+on loopback because agents no longer depend on its published port. Mission Control
+uses a separate listener and needs its own tunnel if enabled.
+
+Automation also supports `TEAM_BUILDER_INTERNAL_URL`. Omitting `--internal-url`
+preserves the original shared-URL behavior and validation. Existing installations
+resume with their stored addresses; `init` does not change an existing community's
+address or identities. Separate URLs require newly built images carrying the
+`io.team-builder.internal-relay=1` capability label; older published images are
+rejected before starting services. See [image build instructions](packaging/README.md).
+
+The relay maps only the explicitly configured internal host and port to the same
+community. Unknown hosts cannot access community data, and signed HTTP/WebSocket
+requests must match the host they actually use. The internal URL is an
+authenticated connection address, not an additional management endpoint.
+
 ## Build a team through conversation
 
 Ask COA: “I need a software team to build a small internal application.” It will

@@ -7,24 +7,25 @@ from team_builder.buzz import Buzz
 from team_builder.nostr import key, public, reply_tags, sign
 
 
-def test_internal_transport_signs_canonical_advertised_host():
+@pytest.mark.parametrize("authority", ["ubuntu.orb.local:3310", "127.0.0.1:3400"])
+def test_internal_transport_signs_canonical_advertised_host(authority):
     secret = key()
     client = Buzz(
         "http://relay:3000",
         secret,
         public(key()),
-        canonical_origin="http://ubuntu.orb.local:3310",
+        canonical_origin="http://" + authority,
     )
 
     def transport(request):
         import base64
 
         assert request.url.host == "relay"
-        assert request.headers["Host"] == "ubuntu.orb.local:3310"
+        assert request.headers["Host"] == authority
         event = json.loads(
             base64.b64decode(request.headers["Authorization"].split()[1])
         )
-        assert ["u", "http://ubuntu.orb.local:3310/query"] in event["tags"]
+        assert ["u", "http://" + authority + "/query"] in event["tags"]
         return httpx.Response(200, json=[])
 
     client.client = httpx.Client(transport=httpx.MockTransport(transport))
