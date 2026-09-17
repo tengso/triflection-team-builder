@@ -8,6 +8,9 @@ import httpx
 
 
 def exercise(state, key):
+    # Lifecycle tests can finish between five-second collection cycles. Require
+    # a collection started after this check, not a pre-operation snapshot.
+    requested_at = time.time()
     config = json.loads((state / "config.json").read_text())
     origin = f"http://127.0.0.1:{config['dashboard']['port']}"
     with httpx.Client(base_url=origin, trust_env=False, timeout=10) as client:
@@ -24,10 +27,10 @@ def exercise(state, key):
             response = client.get("/dashboard/api/v1/overview")
             assert response.status_code == 200
             value = response.json()
-            if value.get("collected_at"):
+            if (value.get("collected_at") or 0) >= requested_at:
                 break
             if time.monotonic() > deadline:
-                raise AssertionError("Dashboard failed to collect its first snapshot")
+                raise AssertionError("Dashboard failed to collect a fresh snapshot")
             time.sleep(1)
         assert not value["stale"], value["errors"]
         assert not value["errors"]
