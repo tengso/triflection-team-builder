@@ -1,3 +1,4 @@
+import fcntl
 import hashlib
 import json
 import os
@@ -23,6 +24,9 @@ def refresh_session_prompts(home: Path):
         data = (home / name).read_bytes()
         digest.update(len(data).to_bytes(8, "big"))
         digest.update(data)
+    skills_marker = home / ".team-builder-skills.json"
+    if skills_marker.exists():
+        digest.update(skills_marker.read_bytes())
     digest.update(json.dumps(Operations.json_schema(), sort_keys=True).encode())
     generation = digest.hexdigest().encode()
     marker = home / ".team-builder-prompt-generation"
@@ -86,42 +90,51 @@ def main():
         return
     if os.getuid() != 10000:
         raise SystemExit("Workers must run as UID 10000")
+    if sys.argv[1:] != ["gateway"]:
+        from .worker_supervisor import supervise
+
+        supervise(
+            [sys.executable, "-m", "team_builder.worker", "gateway"], os.environ.copy()
+        )
+        return
     home = Path("/home/hermes/.hermes")
     home.mkdir(exist_ok=True, mode=0o700)
-    for name in ("config.yaml", "SOUL.md"):
-        private_write(home / name, (Path("/run/team") / name).read_bytes())
-    values = json.loads(Path("/run/team/env.json").read_text())
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.endswith("PROXY") and not k.endswith("proxy")
-    }
-    env.update(values)
-    env.update(
-        HOME="/home/hermes", HERMES_HOME=str(home), HERMES_DISABLE_LAZY_INSTALLS="1"
-    )
-    # Hermes loads its .env itself; write only this worker's credentials, never owner/admin keys.
-    dotenv = "".join(
-        k + "='" + v.replace("\\", "\\\\").replace("'", "\\'") + "'\n"
-        for k, v in values.items()
-    )
-    private_write(home / ".env", dotenv.encode())
-    refreshed = refresh_session_prompts(home)
-    if refreshed:
-        print(
-            f"Refreshed managed capabilities for {refreshed} continuing sessions",
-            flush=True,
-        )
-    from .worker_supervisor import supervise
+    with Path("/run/team/.config.lock").open("r") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        from .worker_config import verify_bundle
 
-    supervise(
-        [
-            "/opt/hermes/.venv/bin/hermes",
-            "gateway",
-            "run",
-            "--no-supervise",
-            "--external-supervisor",
-        ],
+        verify_bundle(Path("/run/team"))
+        for name in ("config.yaml", "SOUL.md"):
+            private_write(home / name, (Path("/run/team") / name).read_bytes())
+        values = json.loads(Path("/run/team/env.json").read_text())
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.endswith("PROXY") and not k.endswith("proxy")
+        }
+        env.update(values)
+        env.update(
+            HOME="/home/hermes", HERMES_HOME=str(home), HERMES_DISABLE_LAZY_INSTALLS="1"
+        )
+        # Hermes loads its .env itself; write only this worker's credentials, never owner/admin keys.
+        dotenv = "".join(
+            k + "='" + v.replace("\\", "\\\\").replace("'", "\\'") + "'\n"
+            for k, v in values.items()
+        )
+        private_write(home / ".env", dotenv.encode())
+        from .worker_config import applied_marker, install_skills
+
+        install_skills(home, Path("/run/team"))
+        refreshed = refresh_session_prompts(home)
+        if refreshed:
+            print(
+                f"Refreshed managed capabilities for {refreshed} continuing sessions",
+                flush=True,
+            )
+        applied_marker(home, Path("/run/team"))
+    os.execve(
+        "/opt/hermes/.venv/bin/hermes",
+        ["hermes", "gateway", "run", "--no-supervise", "--external-supervisor"],
         env,
     )
 

@@ -30,6 +30,9 @@ class Manager:
         self.docker = docker or Docker(self.config["project"])
         self.lock = RLock()
         self.load_provider()
+        from .deployments import Deployments
+
+        self.deployments = Deployments(self)
 
     def load_provider(self):
         path = self.root / "provider.json"
@@ -250,6 +253,20 @@ class Manager:
 
     def apply(self, op):
         action = op["action"]
+        if action == "execute_deployment":
+            return self.deployments.enqueue(op["plan_id"])
+        if action == "configure_deployment_access":
+            return self.deployments.grant(
+                **{k: v for k, v in op.items() if k != "action"}
+            )
+        if action in ("configure_agent", "apply_agent_config"):
+            from .agent_config import apply_config, configure
+
+            return (
+                configure(self, op["id"], op["expected_revision"], op["settings"])
+                if action == "configure_agent"
+                else apply_config(self, op["id"])
+            )
         if action == "configure_github_access":
             from .github_access import configure
 
@@ -362,17 +379,19 @@ class Manager:
                     "Archived agent data is retained; automatic restoration is outside v1"
                 )
             if action == "update_agent":
-                agent.update(
+                from .agent_config import configure, settings
+
+                value = settings(self, agent)
+                value.update(
                     {
                         k: v
                         for k, v in op.items()
                         if k in ("name", "instructions", "model")
                     }
                 )
-                self.save_agent(agent)
-                self.register_agent(agent)
-                if agent["state"] == "running":
-                    self.launch(agent)
+                return configure(
+                    self, agent["id"], agent.get("config_revision", 0), value
+                )
             elif action == "start_agent":
                 self.launch(agent)
             elif action == "stop_agent":
@@ -459,6 +478,14 @@ class Manager:
                 + json.dumps(operations, indent=2)
                 + "\n```\nReply `approve` to this message to authorize exactly these changes."
             )
+            for op in operations:
+                if op["action"] == "execute_deployment":
+                    plan = self.deployments.get("plan/" + op["plan_id"])
+                    text += (
+                        "\n\nFrozen deployment plan (no database migrations):\n```json\n"
+                        + json.dumps(plan, indent=2)
+                        + "\n```"
+                    )
             event = sign(
                 self.secrets["coa"],
                 9,
@@ -496,7 +523,13 @@ class Manager:
                 results.append(json.loads(prior["result"]))
                 continue
             try:
-                result = self.apply(op)
+                result = (
+                    self.deployments.enqueue(
+                        op["plan_id"], source=source_event_id, actor=event["pubkey"]
+                    )
+                    if op["action"] == "execute_deployment"
+                    else self.apply(op)
+                )
                 self.registry.outcome(identifier, "done", result)
                 results.append(result)
             except Exception as exc:  # noqa: BLE001 -- persist partial outcomes even for unexpected provider failures
@@ -553,6 +586,7 @@ class Manager:
                     )
                 }
             )
+            agents[-1]["config_revision"] = agent.get("config_revision", 0)
             agents[-1]["gateway_ready"] = self.docker.ready(self.name(agent))
         return {
             "agents": agents,

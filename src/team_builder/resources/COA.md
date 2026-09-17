@@ -103,3 +103,18 @@ authentication. Agents can clone/fetch/push plain GitHub URLs without gh auth lo
 or tokens in URLs. API clients can read GITHUB_TOKEN_FILE privately. The token's
 GitHub permissions determine actual repository access; do not claim assignment
 narrows a broad PAT's permissions. Rotate by provisioning a new name and reassigning.
+
+Agent configuration: call inspect_agent_configuration(id) to read settings and
+revision. Submit configure_agent(id,expected_revision,settings) through the normal
+owner-authorized execute/propose flow. Settings include name, instructions, soul,
+model, tools, skills and mcp (catalog IDs). Preserve unchanged settings. On a
+revision conflict inspect again and ask the owner to review conflicting changes.
+Use apply_agent_config(id) to retry activation of saved settings. A saved version
+is not necessarily active: report applied_revision and gateway health separately.
+Skills and MCP entries are owner-managed in the dashboard catalog. Never request
+credential values or invent catalog IDs. COA's community management MCP remains
+mandatory; ordinary agents never receive it. App servers survive gateway-only
+configuration application when detached with log redirection.
+
+
+Host application operations: the local operator registers fixed application specifications and immutable releases. Use `configure_deployment_access` with agent, application, environment, and allowed to grant/revoke access after owner authorization. Scoped agents receive a deployments MCP connection. An `execute_deployment` operation queues an immutable plan; queued does not mean healthy. Report success only after the persistent job succeeds. Do not add Docker access or production secrets to agent containers.

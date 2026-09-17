@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import time
 from pathlib import Path
 
 from .nostr import wire
@@ -36,6 +37,7 @@ class Registry:
             PRAGMA synchronous=FULL;
             CREATE TABLE IF NOT EXISTS resources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, body TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, body TEXT NOT NULL, state TEXT NOT NULL, result TEXT);
+            CREATE TABLE IF NOT EXISTS operation_times (id TEXT PRIMARY KEY, created_at REAL, updated_at REAL);
             CREATE TABLE IF NOT EXISTS proposals (id TEXT PRIMARY KEY, source TEXT NOT NULL, body TEXT NOT NULL, event TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS authorizations (event TEXT PRIMARY KEY, body TEXT NOT NULL);
         """)
@@ -89,6 +91,12 @@ class Registry:
                 "INSERT OR IGNORE INTO operations VALUES(?,?,?,NULL)",
                 (identifier, body, "pending"),
             )
+            if not row:
+                now = time.time()
+                self.db.execute(
+                    "INSERT INTO operation_times VALUES(?,?,?)",
+                    (identifier, now, now),
+                )
         return dict(row) if row else {"state": "pending"}
 
     def outcome(self, identifier, state, result):
@@ -96,4 +104,9 @@ class Registry:
             self.db.execute(
                 "UPDATE operations SET state=?,result=? WHERE id=?",
                 (state, wire(result).decode(), identifier),
+            )
+            self.db.execute(
+                "INSERT INTO operation_times VALUES(?,NULL,?) "
+                "ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at",
+                (identifier, time.time()),
             )

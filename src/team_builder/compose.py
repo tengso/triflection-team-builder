@@ -121,7 +121,7 @@ def render(config, secrets):
             ),
         ),
         "manager": service(
-            config["runtime_image"],
+            config.get("manager_image", config["runtime_image"]),
             user="0:0",
             entrypoint=["/opt/hermes/.venv/bin/team-builder-manager"],
             volumes=[

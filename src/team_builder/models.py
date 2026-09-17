@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, TypeAdapter
 
+from .agent_config import Settings
 from .repositories import github_url
 
 Slug = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,47}$")]
@@ -30,6 +31,18 @@ class UpdateAgent(Operation):
     name: Name | None = None
     instructions: Annotated[str, Field(min_length=1, max_length=24000)] | None = None
     model: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+
+
+class ConfigureAgent(Operation):
+    action: Literal["configure_agent"]
+    id: Slug
+    expected_revision: Annotated[int, Field(ge=0)]
+    settings: Settings
+
+
+class ApplyAgentConfig(Operation):
+    action: Literal["apply_agent_config"]
+    id: Slug
 
 
 class AgentState(Operation):
@@ -139,10 +152,25 @@ class ConfigureGitHubAccess(Operation):
     credential: Slug | None = None
 
 
+class ExecuteDeployment(Operation):
+    action: Literal["execute_deployment"]
+    plan_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class ConfigureDeploymentAccess(Operation):
+    action: Literal["configure_deployment_access"]
+    agent: Slug
+    application: Slug
+    environment: Literal["staging", "production"] = "production"
+    allowed: bool = True
+
+
 ManagementOperation = Annotated[
     CreateAgent
     | UpdateAgent
     | AgentState
+    | ConfigureAgent
+    | ApplyAgentConfig
     | CreateChannel
     | UpdateChannel
     | Membership
@@ -154,7 +182,9 @@ ManagementOperation = Annotated[
     | DeleteProject
     | LinkGitHubRepository
     | ConfigureProvider
-    | ConfigureGitHubAccess,
+    | ConfigureGitHubAccess
+    | ExecuteDeployment
+    | ConfigureDeploymentAccess,
     Field(discriminator="action"),
 ]
 Operations = TypeAdapter(list[ManagementOperation])

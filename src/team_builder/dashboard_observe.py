@@ -209,6 +209,17 @@ class Engine:
         entries = []
         patterns = [
             (
+                r"Application startup complete|Uvicorn running|You can now view your Streamlit app",
+                "info",
+                "Application server started",
+            ),
+            (
+                r'"GET /(?:health|healthz|_stcore/health).* 200',
+                "info",
+                "Application health request succeeded",
+            ),
+            (r"Application shutdown complete", "info", "Application server stopped"),
+            (
                 r"WebSocket disconnected",
                 "warning",
                 "Buzz WebSocket disconnected; reconnecting",
@@ -380,8 +391,10 @@ class Observer:
                 )
             ]
             operations = []
-            for identifier, body, state in db.execute(
-                "SELECT id,body,state FROM operations ORDER BY rowid DESC LIMIT 100"
+            for identifier, body, state, created_at, updated_at in db.execute(
+                "SELECT o.id,o.body,o.state,t.created_at,t.updated_at FROM operations o "
+                "LEFT JOIN operation_times t ON t.id=o.id "
+                "ORDER BY COALESCE(t.updated_at,t.created_at,0) DESC,o.rowid DESC LIMIT 100"
             ):
                 op = json.loads(body)
                 operations.append(
@@ -392,6 +405,8 @@ class Observer:
                             "id", op.get("agent", op.get("channel", op.get("project")))
                         ),
                         "state": state,
+                        "created_at": created_at,
+                        "updated_at": updated_at,
                     }
                 )
             proposals = []
@@ -441,7 +456,7 @@ class Observer:
         return resources, {
             "operations": operations,
             "proposals": proposals,
-            "note": "Legacy operations have no timestamps; newest recorded entries first.",
+            "note": "Time shows the last recorded operation update. Older operations without timestamps are marked Not recorded.",
         }
 
     def container(self, name):
@@ -602,6 +617,7 @@ class Observer:
             "repositories": [],
             "services": [],
             "activity": activity,
+            "deployments": self.manager.deployments.read(),
             "errors": [],
         }
         with ThreadPoolExecutor(max_workers=12) as pool:

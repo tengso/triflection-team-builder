@@ -377,6 +377,9 @@ def parser():
         description="Bootstrap a Buzz community managed by Chief of Agents"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    from .deployment_cli import configure_parser
+
+    configure_parser(sub)
     dashboard = sub.add_parser("dashboard", help="Configure read-only Mission Control")
     dashboard_sub = dashboard.add_subparsers(dest="dashboard_command", required=True)
     for action in ("enable", "status", "disable", "rotate-key"):
@@ -403,6 +406,11 @@ def parser():
         default=os.environ.get(
             "TEAM_BUILDER_STATE_DIR", "~/.local/state/team-builder/default"
         ),
+    )
+    upgrade.add_argument(
+        "--manager-only",
+        action="store_true",
+        help="Update management without replacing worker containers",
     )
     upgrade.add_argument("--runtime-image", default=PUBLISHED_IMAGES["hermes"])
     credential = sub.add_parser(
@@ -488,6 +496,11 @@ def parser():
 
 def main():
     args = parser().parse_args()
+    if args.command == "deployment":
+        from .deployment_cli import command
+
+        command(args)
+        return
     try:
         if args.command == "dashboard":
             from .dashboard_access import command
@@ -497,7 +510,7 @@ def main():
         if args.command == "upgrade":
             from .upgrade import upgrade
 
-            upgrade(args.state_dir, args.runtime_image)
+            upgrade(args.state_dir, args.runtime_image, manager_only=args.manager_only)
             return
         if args.command in ("github-credential", "github-access"):
             from .github_access import read_token, store

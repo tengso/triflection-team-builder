@@ -552,3 +552,27 @@ def test_docker_restart_uses_scoped_exec_not_container_restart():
         docker.restart("mine-agent-coa")
     assert len(executed) == 1
     docker.client.close()
+
+
+def test_operation_times_persist_and_legacy_is_unknown(manager, observer, monkeypatch):
+    from team_builder.storage import Registry
+
+    monkeypatch.setattr("team_builder.storage.time.time", lambda: 1000.0)
+    op = {"action": "restart_agent", "id": "coa"}
+    manager.registry.operation("timed", op)
+    monkeypatch.setattr("team_builder.storage.time.time", lambda: 2000.0)
+    manager.registry.outcome("timed", "done", {})
+    manager.registry.operation("timed", op)  # Duplicate must not change timestamps.
+    with manager.registry.db:
+        manager.registry.db.execute(
+            "INSERT INTO operations VALUES(?,?,?,NULL)",
+            ("legacy", json.dumps(op), "done"),
+        )
+    reopened = Registry(manager.root / "registry.sqlite3")
+    reopened.db.close()
+    _, activity = observer.registry()
+    timed, legacy = activity["operations"][:2]
+    assert timed["id"] == "timed"
+    assert timed["created_at"] == 1000.0 and timed["updated_at"] == 2000.0
+    assert legacy["id"] == "legacy"
+    assert legacy["created_at"] is None and legacy["updated_at"] is None

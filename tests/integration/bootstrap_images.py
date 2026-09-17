@@ -150,6 +150,9 @@ def main():
                 ),
                 flush=True,
             )
+            from agent_configuration import exercise as exercise_configuration
+
+            exercise_configuration(state, dashboard_key.read_text().strip())
             if os.environ.get("EXERCISE_MANAGEMENT") == "1":
                 script = Path(__file__).with_name("community_operations.py").read_text()
                 script += "\nexercise(" + repr(owner.read_text()) + ")\n"

@@ -67,6 +67,7 @@ class Docker:
             observed = None
         if not observed:
             spec["Labels"] = {
+                **spec.get("Labels", {}),
                 "io.team-builder.project": self.project,
                 "io.team-builder.generation": generation,
             }

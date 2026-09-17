@@ -16,6 +16,10 @@ COOKIE = "tb_dashboard"
 ASSETS = {
     "/dashboard/": ("dashboard.html", "text/html; charset=utf-8"),
     "/dashboard/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
+    "/dashboard/configuration.js": (
+        "configuration.js",
+        "text/javascript; charset=utf-8",
+    ),
     "/dashboard/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8"),
 }
 
@@ -75,6 +79,31 @@ def serve(observer, address=("0.0.0.0", 8089)):
             if not access.valid(self.session()):
                 self.reply(401, {"error": "Owner sign-in required"})
                 return
+            config_route = re.fullmatch(
+                re.escape(PREFIX) + r"/agents/([a-z][a-z0-9-]{0,47})/configuration",
+                url.path,
+            )
+            if config_route or url.path == PREFIX + "/catalog":
+                from .agent_config import catalog, inspect_config
+
+                manager = observer.manager
+                if not manager.lock.acquire(blocking=False):
+                    self.reply(409, {"error": "Management busy; retry shortly"})
+                    return
+                try:
+                    self.reply(
+                        200,
+                        inspect_config(manager, config_route[1])
+                        if config_route
+                        else {"entries": catalog(manager)},
+                    )
+                except ValueError:
+                    self.reply(404, {"error": "Unknown agent"})
+                except Exception:  # noqa: BLE001 -- never reflect private configuration
+                    self.reply(503, {"error": "Configuration unavailable"})
+                finally:
+                    manager.lock.release()
+                return
             routes = {
                 PREFIX + "/" + key: key
                 for key in (
@@ -86,6 +115,25 @@ def serve(observer, address=("0.0.0.0", 8089)):
                     "activity",
                 )
             }
+            if url.path == PREFIX + "/deployments/logs":
+                try:
+                    query = parse_qs(url.query, strict_parsing=True)
+                    if set(query) != {"application", "environment", "service"} or any(
+                        len(v) != 1 for v in query.values()
+                    ):
+                        raise ValueError("Invalid log selection")
+                    self.reply(
+                        200,
+                        observer.manager.deployments.logs(
+                            **{k: v[0] for k, v in query.items()}
+                        ),
+                    )
+                except Exception:  # noqa: BLE001 -- sanitize deployment boundary failures
+                    self.reply(503, {"error": "Application diagnostics unavailable"})
+                return
+            if url.path == PREFIX + "/deployments":
+                self.reply(200, observer.manager.deployments.read())
+                return
             if url.path == PREFIX + "/logs":
                 try:
                     query = parse_qs(url.query, strict_parsing=True)
@@ -120,7 +168,18 @@ def serve(observer, address=("0.0.0.0", 8089)):
                 re.escape(PREFIX) + r"/agents/([a-z0-9][a-z0-9_-]{0,63})/restart",
                 self.path,
             )
-            if not restart and self.path not in (PREFIX + "/login", PREFIX + "/logout"):
+            config_route = re.fullmatch(
+                re.escape(PREFIX)
+                + r"/agents/([a-z][a-z0-9-]{0,47})/(configuration|apply-configuration)",
+                self.path,
+            )
+            catalog_route = self.path == PREFIX + "/catalog"
+            if (
+                not restart
+                and not config_route
+                and not catalog_route
+                and self.path not in (PREFIX + "/login", PREFIX + "/logout")
+            ):
                 self.reply(405, {"error": "Unsupported dashboard action"})
                 return
             # Requiring a browser Origin blocks cross-origin login and logout.
@@ -130,14 +189,59 @@ def serve(observer, address=("0.0.0.0", 8089)):
             ):
                 self.reply(403, {"error": "Same-origin JSON request required"})
                 return
-            if restart and not access.valid(self.session()):
+            if (restart or config_route or catalog_route) and not access.valid(
+                self.session()
+            ):
                 self.reply(401, {"error": "Owner sign-in required"})
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 1024 or self.headers.get("Transfer-Encoding"):
+                if not 0 < length <= (
+                    131072 if config_route or catalog_route else 1024
+                ) or self.headers.get("Transfer-Encoding"):
                     raise ValueError("Invalid body")
                 body = json.loads(self.rfile.read(length))
+                if config_route or catalog_route:
+                    from .agent_config import add_catalog, apply_config, configure
+
+                    manager = observer.manager
+                    if not manager.lock.acquire(blocking=False):
+                        self.reply(409, {"error": "Management busy; retry shortly"})
+                        return
+                    try:
+                        if catalog_route:
+                            result = add_catalog(manager, body)
+                        elif config_route[2] == "configuration":
+                            if (
+                                not isinstance(body, dict)
+                                or set(body) != {"expected_revision", "settings"}
+                                or type(body["expected_revision"]) is not int
+                            ):
+                                raise ValueError("Expected revision and settings")
+                            result = configure(
+                                manager,
+                                config_route[1],
+                                body["expected_revision"],
+                                body["settings"],
+                                source="dashboard",
+                            )
+                        else:
+                            if body != {}:
+                                raise ValueError("Invalid apply request")
+                            result = apply_config(manager, config_route[1])
+                        self.reply(200, result)
+                    except ValueError as exc:
+                        self.reply(
+                            409 if "Configuration changed" in str(exc) else 400,
+                            {
+                                "error": str(exc)
+                                if type(exc) is ValueError
+                                else "Invalid configuration fields"
+                            },
+                        )
+                    finally:
+                        manager.lock.release()
+                    return
                 if restart:
                     if (
                         not isinstance(body, dict)

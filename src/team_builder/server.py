@@ -5,6 +5,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .agent_config import inspect_config
 from .manager import Manager
 from .nostr import wire
 
@@ -32,6 +33,26 @@ def serve(manager, address=("0.0.0.0", 8088)):
                 self.answer(404, {"error": "Not found"})
 
         def do_POST(self):
+            if self.path in ("/deployments", "/operator/deployments"):
+                from .deployment_api import handle
+
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 262144:
+                        raise ValueError("Invalid request size")
+                    body = json.loads(self.rfile.read(length))
+                    result = handle(
+                        manager, self.path, self.headers.get("Authorization", ""), body
+                    )
+                    self.answer(200, result)
+                except Exception:  # noqa: BLE001 -- sanitize deployment boundary failures
+                    self.answer(
+                        400,
+                        {
+                            "error": "Deployment request rejected; verify authorization, resource scope and plan revision"
+                        },
+                    )
+                return
             local_github = self.path == "/operator/github-access"
             from .github_access import operator_apply, operator_token
 
@@ -58,6 +79,7 @@ def serve(manager, address=("0.0.0.0", 8088)):
                         return
                     methods = {
                         "/inspect": manager.inspect,
+                        "/agent-config": lambda id: inspect_config(manager, id),
                         "/projects": manager.inspect_projects,
                         "/credential": manager.store_provider_credential,
                         "/propose": manager.propose,
@@ -100,6 +122,7 @@ def main():
 
     from .dashboard import start
 
+    manager.deployments.start()
     start(manager)
 
     def bootstrap():

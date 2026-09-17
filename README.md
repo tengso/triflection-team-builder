@@ -233,8 +233,8 @@ excluded from publication. The new package does not import or run the old builde
 
 Mission Control shows one community's agents, services, channels, projects,
 repository announcements, operation outcomes, and recent activity metadata.
-It does not change the community or approve commands. Management stays in Buzz
-and host maintenance stays in Docker Compose.
+Owners can configure agents and restart their gateways. Community structure and
+command approvals stay in Buzz; host maintenance stays in Docker Compose.
 
 On the Linux host, after installing/upgrading to v0.4.0:
 
@@ -274,8 +274,9 @@ Recent message/tool entries show metadata only. Logs contain recognized,
 sanctioned diagnostic summaries from the last 100 container log lines; commands,
 transcripts, credentials, and arbitrary output are omitted. Inspect full logs
 locally with Compose when deeper troubleshooting is needed. Metric samples stay
-in memory for at most an hour and reset with the manager. Existing operation
-history has no timestamps, so its ordering is by original registry insertion.
+in memory for at most an hour and reset with the manager. Operation times show the last recorded update; historical entries without a
+recorded timestamp are labeled Not recorded. All dashboard times, including logs,
+use the browser’s local timezone, identified in the footer.
 
 This version supports private-network HTTP, a single owner access key, and one
 installation. Keep the dashboard on a trusted private network. It has no terminal,
@@ -305,3 +306,66 @@ The dashboard never falls back to restarting an old container; it reports that a
 runtime upgrade is required. Only agents with running desired state can restart.
 Watch gateway and Buzz health separately for reconnection; the result confirms the
 new gateway process was launched, not that it is ready. Outcomes appear in Activity.
+
+
+### Agent configuration
+
+Open **Agents → an agent → Configure** to edit its display name, model, role
+instructions, SOUL.md personality, built-in tools, managed skills, and MCP
+connections. **Review changes** shows the before/after values; **Save and apply**
+saves a new revision and restarts only the running agent's gateway. Active turns
+may be interrupted; detached app servers remain in the container. Stopped agents
+load the saved configuration on their next start.
+
+The editor distinguishes the saved revision from the revision loaded by the last
+witnessed gateway. Check gateway health for responsiveness. A pending apply retains
+the saved revision and can be retried. Restore an old configuration by reviewing
+and saving it as a new revision. Concurrent dashboard and COA edits fail with a
+conflict instead of overwriting newer settings.
+
+COA uses `inspect_agent_configuration`, then an owner-authorized `configure_agent`
+operation with `expected_revision` and complete settings. `apply_agent_config`
+retries activation. Existing `update_agent` operations also create revisions.
+Ordinary agents cannot access these management tools.
+
+Owners add immutable catalog entries in the configuration editor. Skills contain
+Markdown instructions; new versions use new catalog IDs. MCP entries support
+HTTP(S) endpoints with explicit allowed tool names (empty means none). For bearer
+authentication, provision a named secret through `team-builder credential` first
+(see `team-builder credential --help`), then enter only its name in the catalog.
+Values are resolved into the assigned agent's private configuration and are never
+returned by the editor. COA assigns approved catalog IDs; it cannot add arbitrary
+MCP commands through these operations. COA retains its mandatory community
+management connection, which ordinary agents never receive.
+
+The prompt preview shows the managed SOUL.md layer, not Hermes' entire dynamic
+system prompt. Managed skills supplement existing Hermes/project skills. Tool
+selection controls exposure to the model; terminal access is not a security
+sandbox. Remote MCP tools may themselves perform mutations.
+
+Existing installations need a one-time worker image upgrade for the new loader.
+This upgrade recreates containers and interrupts app servers. Afterward,
+configuration-only changes reload gateways without recreating containers.
+
+## Deployment management service
+
+Team Builder includes a generic deployment service in its manager. The owner or
+COA can assign any selected managed agent access to specific applications and
+`staging` or `production` environments. Cody is one example assignee; the service
+and production containers operate independently of agent identity and lifecycle.
+
+The owner registers fixed application specifications, secrets, and immutable
+releases through the CLI. Assign access with a `team-builder deployment` `grant`
+request, or ask COA to use the owner-authorized `configure_deployment_access`
+operation. The selected agent automatically receives scoped MCP tools for
+inspection, deployment planning, owner-authorized deployment, restart, and
+rollback. Access can be revoked or transferred without redeploying the application.
+
+Mission Control → **Deployments** shows health, releases, persistent operations,
+and sanitized diagnostic logs with local timestamps. Deployment actions and agent
+access assignment currently use the CLI or Buzz rather than dashboard controls.
+
+See the [deployment service guide](docs/deployments.md) for architecture,
+[agent assignment and revocation](docs/deployments.md#assign-a-selected-agent),
+the [MCP tool reference](docs/deployments.md#tools-available-to-assigned-agents),
+and [deployment and recovery](docs/deployments.md#deployment-and-recovery).

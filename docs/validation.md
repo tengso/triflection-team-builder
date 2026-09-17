@@ -142,3 +142,13 @@ Run the same expanded protocol test with `EXERCISE_MANAGEMENT=1` when invoking
 `Image Smoke Test` community. This verifies relay/gateway behavior; it does not
 make a paid model request or claim to validate new project workflows through a
 live language-model conversation.
+
+## Hosted deployments (2026-09-17)
+
+- Builder: 120 tests passed; Ruff checks and formatting passed.
+- Application main `9104be4c00f7c0e364fd86fd2e612c62518898c4`: 238 tests passed in a disposable image with no operational database credentials.
+- Isolated Linux deployment: durable queue recovery, duplicate requests, actual service restart, image replacement, rollback, retained volume witness, snapshots and sanitized logs passed.
+- Ubuntu production: UI and API healthy, UI reachable from workstation on 38502. Dashboard showed succeeded operation and timestamped service diagnostics; filter/keyboard clearing and desktop/mobile detail views checked.
+- Live Cody deployment MCP and COA management schema verified. Agent container IDs, identities and channel memberships preserved; UAT health on 18502 still HTTP 200.
+- This deployment uses a locally built pinned application image and local manager image; no new public image release was published.
+- Production authentication/data configuration remains pending: the UAT checkout did not contain database credentials or users.yaml. Production dev-mode bypass is disabled. Container health is not evidence of working database access or user login.

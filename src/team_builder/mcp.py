@@ -29,6 +29,11 @@ def main():
         return call("/inspect", {})
 
     @server.tool()
+    def inspect_agent_configuration(id: str) -> dict:
+        """Read current settings, revision, history and approved skill/MCP catalog. No credentials."""
+        return call("/agent-config", {"id": id})
+
+    @server.tool()
     def inspect_projects() -> dict:
         """List managed Buzz projects, repository coordinates, and linked channels."""
         return call("/projects", {})
