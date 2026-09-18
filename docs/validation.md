@@ -173,3 +173,10 @@ live language-model conversation.
 - Installed the release wheel into a fresh Ubuntu virtual environment and ran isolated bootstrap without image override flags. Split client/internal connectivity, identity-preserving resume, dashboard access, configuration reload/rollback, and detached application retention passed.
 - Temporary test resources were removed; all existing live container IDs remained unchanged. No live community upgrade was performed.
 - Validation uses generated test identities and a dummy provider credential; no paid model calls were made.
+
+## Agent proxy v0.5.1 — 2026-09-18
+
+- 157 regression tests passed, including proxy URL validation, persisted environment bundles, disable/retry behavior, and the old-manager compatibility guard. Ruff checks and formatting passed.
+- Image workflow [35300322694](https://github.com/tengso/triflection-team-builder/actions/runs/35300322694) passed isolated Linux bootstrap and community-management validation, plus proxy application/removal in a live Hermes gateway. The native model-provider proxy selector used the configured proxy and bypassed internal relay/manager URLs.
+- The packaged installer passed a separate isolated Ubuntu test with v0.5.0 workers: a manager-only upgrade applied and removed proxy settings successfully. Worker containers were retained, and subsequent dashboard checks passed. Temporary test resources were removed.
+- Both published image digests and release tags were verified anonymously. No real model-provider request or connection to the user's cloud proxy was made; reachability from that LXD installation must be checked there.
