@@ -15,7 +15,7 @@ image IDs. It does not need Rust, a Hermes checkout, or a local Docker build.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.1.0/buzz_team_builder-0.1.0-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.5.0/buzz_team_builder-0.5.0-py3-none-any.whl'
 team-builder init \
   --bind 0.0.0.0 \
   --port 3100
@@ -56,18 +56,15 @@ in discovery and media links. `--internal-url` optionally supplies a separate
 agent connection URL; for this Compose installation use `http://relay:3000`.
 `--bind` and `--port` control the server's published socket independently.
 
-These options require the CLI from this checkout (`pip install .`) and newly
-built Buzz/runtime images; the published 0.1.0 installer does not include them.
+The v0.5.0 installer above includes these options and selects compatible images.
 For a client that can reach the server only through an SSH tunnel, initialize on
-the Linux server with compatible images:
+the Linux server:
 
 ```sh
 team-builder init \
   --advertised-url http://127.0.0.1:3400 \
   --internal-url http://relay:3000 \
-  --bind 127.0.0.1 --port 3100 \
-  --buzz-image YOUR_UPDATED_BUZZ_IMAGE \
-  --runtime-image YOUR_UPDATED_HERMES_IMAGE
+  --bind 127.0.0.1 --port 3100
 ```
 
 On the workstation, keep this tunnel open and join `http://127.0.0.1:3400` in Buzz:
@@ -86,9 +83,10 @@ uses a separate listener and needs its own tunnel if enabled.
 Automation also supports `TEAM_BUILDER_INTERNAL_URL`. Omitting `--internal-url`
 preserves the original shared-URL behavior and validation. Existing installations
 resume with their stored addresses; `init` does not change an existing community's
-address or identities. Separate URLs require newly built images carrying the
-`io.team-builder.internal-relay=1` capability label; older published images are
-rejected before starting services. See [image build instructions](packaging/README.md).
+address or identities. When supplying custom images, both images must carry the
+`io.team-builder.internal-relay=1` capability label; incompatible images are
+rejected before starting services. The default v0.5.0 image pins include support.
+See [image build instructions](packaging/README.md) for custom builds.
 
 The relay maps only the explicitly configured internal host and port to the same
 community. Unknown hosts cannot access community data, and signed HTTP/WebSocket
@@ -210,6 +208,10 @@ channels, and infrastructure volumes. It saves the previous Compose/config files
 to resume with saved image pins. An interrupted upgrade can be retried with the same
 image. If readiness fails, inspect manager logs before retrying.
 
+`upgrade` does not replace the Buzz relay image or change community addresses.
+The new split-URL bootstrap is available for fresh installations; automatic
+migration of an existing community to a different client URL is not implemented.
+
 ## Operation and recovery
 
 When an agent requests command approval in Buzz, the community owner can reply
@@ -282,7 +284,7 @@ repository announcements, operation outcomes, and recent activity metadata.
 Owners can configure agents and restart their gateways. Community structure and
 command approvals stay in Buzz; host maintenance stays in Docker Compose.
 
-On the Linux host, after installing/upgrading to v0.4.0:
+On the Linux host, after installing/upgrading to v0.5.0:
 
 ```bash
 team-builder dashboard enable

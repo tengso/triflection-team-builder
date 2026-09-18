@@ -2,7 +2,7 @@
 
 Repository: https://github.com/tengso/triflection-team-builder
 
-Release `0.1.0` is public and supports anonymous pulls. The installer pins the
+Release `0.5.0` is public and supports anonymous pulls. The installer pins the
 verified image digests in `src/team_builder/resources/images.json`. The release
 includes an installer wheel and an `images.json` manifest with the build commit.
 
@@ -21,7 +21,7 @@ builder code. All agents and the manager use the same Hermes runtime image.
 Run the **Publish images** workflow with a new semantic version:
 
 ```sh
-gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.1.1
+gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.5.1
 ```
 
 The workflow downloads the exact upstream commits in `sources.json`, applies the

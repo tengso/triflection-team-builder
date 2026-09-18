@@ -164,3 +164,12 @@ live language-model conversation.
 - Dashboard authentication, gateway responsiveness, authoritative community readback, and secret-isolation checks passed in the temporary deployment.
 - Configuration reload, skill changes, conflict/rollback handling, manager restart persistence, and detached application retention passed. The test deployment was removed; existing live container IDs remained unchanged.
 - Test image IDs: Buzz `sha256:2d1bbee2b79df37bd53ceac586774670ef8f842ee9b3001c8364bfac7825a2a4`; runtime `sha256:c2cba7c2a48e4c1d631ae8600e42169c76e57ddedd3e34c5916d7e649bea7685`. These are local validation builds, not a new public release or a live deployment upgrade.
+
+## Public v0.5.0 release — 2026-09-18
+
+- GitHub image workflow [35222673342](https://github.com/tengso/triflection-team-builder/actions/runs/35222673342) passed the 142-test regression suite, lint/format checks, and isolated Compose bootstrap with the expanded community-management checks.
+- Dashboard acceptance now waits for a collection started after preceding lifecycle operations, avoiding assertions against a cached pre-operation snapshot.
+- Both release image tags and immutable digests are anonymously accessible. The installer bundles these verified digests.
+- Installed the release wheel into a fresh Ubuntu virtual environment and ran isolated bootstrap without image override flags. Split client/internal connectivity, identity-preserving resume, dashboard access, configuration reload/rollback, and detached application retention passed.
+- Temporary test resources were removed; all existing live container IDs remained unchanged. No live community upgrade was performed.
+- Validation uses generated test identities and a dummy provider credential; no paid model calls were made.
