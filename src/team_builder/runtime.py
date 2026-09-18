@@ -250,6 +250,9 @@ def _write_agent_files(root, config, secrets, agent):
             managed / "management_mcp.py",
             (mcp_source + "\nif __name__ == '__main__':\n    main()\n").encode(),
         )
+    from .proxy import environment as proxy_environment
+
+    env.update(proxy_environment(root, config))
     private_write(managed / "config.yaml", yaml.safe_dump(document).encode())
     private_write(managed / "env.json", env)
     private_write(managed / "SOUL.md", soul.encode())

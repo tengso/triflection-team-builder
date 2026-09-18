@@ -93,6 +93,35 @@ community. Unknown hosts cannot access community data, and signed HTTP/WebSocket
 requests must match the host they actually use. The internal URL is an
 authenticated connection address, not an additional management endpoint.
 
+### Agent HTTP proxy
+
+Starting with v0.5.1, configure an unauthenticated HTTP forward proxy on the Linux
+host where the team runs (inside the LXD container, if applicable):
+
+```bash
+team-builder proxy set --url http://PROXY_SERVER:3128
+team-builder proxy status
+# Return to direct connections:
+team-builder proxy disable
+```
+
+Upgrade the CLI and management runtime to v0.5.1 first. This setting persists in
+installation state and applies to existing and future agents. It supplies
+`HTTP_PROXY`/`HTTPS_PROXY` and lowercase equivalents to agent gateways; tools
+inheriting that environment may also use the proxy. HTTPS providers use HTTP
+CONNECT through the proxy, retaining TLS certificate verification. Proxy
+authentication and SOCKS proxies are not supported by this command.
+
+Internal Buzz and management addresses, localhost, and infrastructure service
+names are excluded through `NO_PROXY`. The proxy must be reachable from the agent
+Docker network; localhost would refer to the agent container and is rejected.
+Changing the setting restarts the manager and refreshes running agent gateways;
+active conversations may be interrupted, but agent containers and detached apps
+are retained. Existing detached processes retain their previous environment.
+Stopped/archived agents stay stopped. If application fails, the setting remains
+saved; fix the reported problem and retry the same command. This does not configure
+Docker image pulls or the Ubuntu/LXD host's own network proxy.
+
 ## Build a team through conversation
 
 Ask COA: “I need a software team to build a small internal application.” It will

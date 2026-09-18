@@ -457,6 +457,18 @@ def parser():
                 "--key-output",
                 help="Write the one-time key to a new private file instead of stdout",
             )
+    proxy = sub.add_parser("proxy", help="Configure HTTP egress proxy for agents")
+    proxy_sub = proxy.add_subparsers(dest="proxy_command", required=True)
+    for action in ("set", "status", "disable"):
+        item = proxy_sub.add_parser(action)
+        item.add_argument(
+            "--state-dir",
+            default=os.environ.get(
+                "TEAM_BUILDER_STATE_DIR", "~/.local/state/team-builder/default"
+            ),
+        )
+        if action == "set":
+            item.add_argument("--url", required=True)
     upgrade = sub.add_parser(
         "upgrade", help="Update the runtime while preserving community state"
     )
@@ -566,6 +578,11 @@ def main():
         command(args)
         return
     try:
+        if args.command == "proxy":
+            from .proxy import command
+
+            command(args)
+            return
         if args.command == "dashboard":
             from .dashboard_access import command
 
