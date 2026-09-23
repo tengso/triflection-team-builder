@@ -273,3 +273,66 @@ def test_dashboard_deployment_routes_require_owner(manager):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_private_channel_proposals_do_not_need_coa(manager, create_ops):
+    from conftest import FakeBuzz
+
+    from team_builder.nostr import public
+
+    d = setup(manager)
+    manager.execute(message(manager), create_ops)
+    agent = manager.resource("engineer", "agent")
+    agent["deployments"] = ["portal/production"]
+    manager.save_agent(agent)
+    channel = agent["channel_ids"][0]
+    # The real relay rejects non-members; enforce that in this regression test.
+    manager.buzz.channels[channel]["roles"].pop(public(manager.secrets["coa"]), None)
+    original = manager.actor
+
+    def actor(*args):
+        client = original(*args)
+
+        def publish(event):
+            assert client.pubkey in manager.buzz.channels[channel]["roles"]
+            return FakeBuzz.publish(client, event)
+
+        client.publish = publish
+        return client
+
+    manager.actor = actor
+    plan = d.plan("portal", release="r1")
+    source = message(manager, "Prepare deployment", channel=channel)
+
+    def request(action, **kw):
+        return handle(
+            manager,
+            "/deployments",
+            "Bearer " + token(manager.secrets, "engineer"),
+            {"agent": "engineer", "application": "portal", "action": action, **kw},
+        )
+
+    proposal = request("propose", plan_id=plan["plan_id"], source_event_id=source)
+    assert manager.buzz.events[proposal["message_id"]]["pubkey"] == agent["pubkey"]
+    assert (
+        request("propose", plan_id=plan["plan_id"], source_event_id=source) == proposal
+    )
+    assert not d.db.list("job")
+    bad = message(
+        manager,
+        "approve",
+        secret=agent["secret"],
+        channel=channel,
+        reply=proposal["message_id"],
+    )
+    with pytest.raises(ValueError, match="human owner"):
+        request("approve", approval_event_id=bad)
+    approval = message(
+        manager, "approve", channel=channel, reply=proposal["message_id"]
+    )
+    result = request("approve", approval_event_id=approval)
+    assert result["results"][0]["state"] == "queued"
+    assert request("approve", approval_event_id=approval) == result
+    manager.buzz.channels[channel]["roles"].pop(agent["pubkey"])
+    with pytest.raises(ValueError, match="this agent"):
+        request("approve", approval_event_id=approval)

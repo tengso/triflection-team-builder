@@ -88,6 +88,76 @@ def exercise(owner_secret):
     execute(
         [{"action": "remove_human_member", "channel": "research", "pubkey": person}]
     )
+    # Deployment proposals must work without COA in this private channel.
+    execute(
+        [
+            {
+                "action": "create_agent",
+                "id": "release-operator",
+                "name": "Release Operator",
+                "instructions": "Isolated deployment test",
+                "channels": ["research"],
+            }
+        ]
+    )
+    agent = m.resource("release-operator", "agent")
+    channel = m.resource("research", "channel")["uuid"]
+    assert public(m.secrets["coa"]) not in m.buzz.channel(channel)["roles"]
+    from team_builder.deployment_api import handle
+    from team_builder.deployments import token
+
+    m.deployments.register(
+        {
+            "id": "acceptance",
+            "repository": "test/isolated",
+            "services": [
+                {
+                    "id": "api",
+                    "command": ["api"],
+                    "port": 8002,
+                    "health_path": "/health",
+                }
+            ],
+        }
+    )
+    m.deployments.release(
+        {
+            "id": "r1",
+            "application": "acceptance",
+            "commit": "a" * 40,
+            "images": {"api": "sha256:" + "a" * 64},
+        }
+    )
+    agent["deployments"] = ["acceptance/production"]
+    m.save_agent(agent)
+    source = sign(
+        owner_secret, 9, [["h", channel]], "Prepare isolated release proposal"
+    )
+    owner.publish(source)
+    plan = m.deployments.plan("acceptance", release="r1")
+
+    def deployment(action, **kw):
+        return handle(
+            m,
+            "/deployments",
+            "Bearer " + token(m.secrets, agent["id"]),
+            {"agent": agent["id"], "application": "acceptance", "action": action, **kw},
+        )
+
+    proposal = deployment(
+        "propose", plan_id=plan["plan_id"], source_event_id=source["id"]
+    )
+    event = m.buzz.message(proposal["message_id"])
+    assert event["pubkey"] == agent["pubkey"]
+    assert (
+        deployment("propose", plan_id=plan["plan_id"], source_event_id=source["id"])
+        == proposal
+    )
+    assert not m.deployments.db.list("job")
+    execute([{"action": "archive_agent", "id": "release-operator"}])
+    print(
+        "PASS: assigned agent publishes a frozen deployment proposal in a private channel without COA; retries reuse event"
+    )
     execute([{"action": "delete_channel", "id": "research"}])
     execute([{"action": "stop_agent", "id": "coa"}])
     from team_builder.github_access import configure, store

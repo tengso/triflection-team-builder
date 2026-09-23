@@ -577,10 +577,54 @@ class Deployments:
         )
         return snap
 
+    def release_sync_status(self, application):
+        directory = self.manager.root / "release-sync" / application
+        if not directory.exists():
+            return {"state": "not_configured"}
+        try:
+            status = (
+                json.loads((directory / "status.json").read_text())
+                if (directory / "status.json").exists()
+                else {}
+            )
+            error = (
+                json.loads((directory / "error.json").read_text())
+                if (directory / "error.json").exists()
+                else {}
+            )
+            checked = status.get("checked_at")
+            return {
+                "state": "failed"
+                if error
+                else (
+                    "current" if checked and time.time() - checked < 600 else "stale"
+                ),
+                "checked_at": checked,
+                "failed_at": error.get("failed_at"),
+                "error": error.get("error")
+                if error.get("error")
+                in (
+                    "HTTPStatusError",
+                    "ValueError",
+                    "RuntimeError",
+                    "TimeoutExpired",
+                    "ConnectError",
+                    "ReadTimeout",
+                )
+                else ("Unavailable" if error else None),
+                "http_status": error.get("http_status")
+                if isinstance(error.get("http_status"), int)
+                else None,
+                "release": status.get("latest", {}).get("release"),
+            }
+        except (OSError, ValueError, TypeError):
+            return {"state": "unavailable"}
+
     def observe(self):
         started = time.time()
         with self.lock:
             apps, jobs = self.db.list("application"), self.db.list("job")
+            releases = self.db.list("release")
         rows = []
 
         def collect(app):
@@ -591,6 +635,13 @@ class Deployments:
                 "repository": spec["repository"],
                 "current": app["current"],
                 "previous": app["previous"],
+                "releases": [
+                    {k: r[k] for k in ("id", "commit", "images")}
+                    for r in releases
+                    if r["application"] == spec["id"]
+                    and r["environment"] == spec["environment"]
+                ],
+                "release_sync": self.release_sync_status(spec["id"]),
                 "services": [],
             }
             docker = Docker(self.manager.config["project"])

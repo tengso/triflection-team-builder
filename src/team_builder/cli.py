@@ -439,6 +439,11 @@ def parser():
     from .deployment_cli import configure_parser
 
     configure_parser(sub)
+    sync = sub.add_parser(
+        "release-sync", help="Import verified CI releases without deploying"
+    )
+    sync.add_argument("config_file")
+    sync.add_argument("--state-dir", default="~/.local/state/team-builder/default")
     dashboard = sub.add_parser("dashboard", help="Configure read-only Mission Control")
     dashboard_sub = dashboard.add_subparsers(dest="dashboard_command", required=True)
     for action in ("enable", "status", "disable", "rotate-key"):
@@ -572,6 +577,11 @@ def parser():
 
 def main():
     args = parser().parse_args()
+    if args.command == "release-sync":
+        from .release_sync import command
+
+        command(args)
+        return
     if args.command == "deployment":
         from .deployment_cli import command
 

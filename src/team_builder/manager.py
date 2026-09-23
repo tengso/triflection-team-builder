@@ -463,10 +463,26 @@ class Manager:
             self.registry.put("source/" + identifier, "source", event)
         return event
 
-    def propose(self, source_event_id, operations):
+    def propose(self, source_event_id, operations, *, proposer=None):
         operations = validate(operations)
         source = self.source(source_event_id)
-        digest = hashlib.sha256(wire([source_event_id, operations])).hexdigest()
+        signer = self.resource(proposer, "agent") if proposer else None
+        secret = signer["secret"] if signer else self.secrets["coa"]
+        auth_tag = signer["auth_tag"] if signer else self.config["coa_auth"]
+        if signer:
+            channel = tags(source, "h")[0][0]
+            authoritative = self.buzz.channel(channel)
+            if (
+                signer["state"] != "running"
+                or channel not in signer["channel_ids"]
+                or not authoritative
+                or signer["pubkey"] not in authoritative["roles"]
+            ):
+                raise ValueError("Proposer must be an active channel member")
+        identity = [source_event_id, operations]
+        if proposer:
+            identity.append(proposer)
+        digest = hashlib.sha256(wire(identity)).hexdigest()
         row = self.registry.db.execute(
             "SELECT event FROM proposals WHERE id=?", (digest,)
         ).fetchone()
@@ -487,7 +503,7 @@ class Manager:
                         + "\n```"
                     )
             event = sign(
-                self.secrets["coa"],
+                secret,
                 9,
                 [["h", tags(source, "h")[0][0]], *reply_tags(source)],
                 text,
@@ -502,7 +518,7 @@ class Manager:
                         wire(event).decode(),
                     ),
                 )
-        self.actor(self.secrets["coa"], self.config["coa_auth"]).publish(event)
+        self.actor(secret, auth_tag).publish(event)
         return {
             "proposal_id": digest,
             "message_id": event["id"],

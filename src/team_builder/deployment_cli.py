@@ -24,8 +24,6 @@ def configure_parser(sub):
 
 
 def command(args):
-    from .cli import run
-
     request = json.loads(Path(args.request_file).read_text())
     if args.secrets_file:
         if request.get("action") != "register":
@@ -39,6 +37,17 @@ def command(args):
                 "Login files are accepted only during application registration"
             )
         request["files"] = {"users.yaml": Path(args.users_file).read_text()}
+    print(
+        json.dumps(
+            operator_request(Path(args.state_dir).expanduser().resolve(), request),
+            indent=2,
+        )
+    )
+
+
+def operator_request(root, request):
+    from .cli import run
+
     script = """import json,sys,httpx
 from pathlib import Path
 from team_builder.deployments import token
@@ -49,8 +58,7 @@ with httpx.Client(trust_env=False,timeout=60) as client:
         raise SystemExit('Deployment request rejected; verify request and manager health')
     print(json.dumps(response.json(),indent=2))
 """
-    root = Path(args.state_dir).expanduser().resolve()
-    print(
+    return json.loads(
         run(
             [
                 "docker",

@@ -448,3 +448,5 @@ See the [deployment service guide](docs/deployments.md) for architecture,
 [agent assignment and revocation](docs/deployments.md#assign-a-selected-agent),
 the [MCP tool reference](docs/deployments.md#tools-available-to-assigned-agents),
 and [deployment and recovery](docs/deployments.md#deployment-and-recovery).
+
+CI-backed application releases: see [trusted GitHub Actions import and Cody/Oppo deployment approval](docs/deployments.md#ci-backed-releases-no-coa-required). No COA channel membership is required.

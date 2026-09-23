@@ -92,9 +92,11 @@ def handle(manager, path, authorization, body):
             if channel not in member["channel_ids"]:
                 raise ValueError("Source message outside agent channels")
             operations = [{"action": "execute_deployment", "plan_id": plan_id}]
-            return (manager.propose if action == "propose" else manager.execute)(
-                body["source_event_id"], operations
-            )
+            if action == "propose":
+                return manager.propose(
+                    body["source_event_id"], operations, proposer=agent
+                )
+            return manager.execute(body["source_event_id"], operations)
     if action == "approve":
         with manager.lock:
             approval = manager.source(body["approval_event_id"], owner=True)
@@ -104,10 +106,23 @@ def handle(manager, path, authorization, body):
             if len(replies) != 1:
                 raise ValueError("Reply approve to the frozen deployment proposal")
             row = manager.registry.db.execute(
-                "SELECT body FROM proposals WHERE json_extract(event,'$.id')=?",
+                "SELECT body,event FROM proposals WHERE json_extract(event,'$.id')=?",
                 (replies[0],),
             ).fetchone()
-            operations = json.loads(row[0]) if row else []
+            member = manager.resource(agent, "agent")
+            proposal = json.loads(row["event"]) if row else {}
+            channel = tags(approval, "h")[0][0]
+            authoritative = manager.buzz.channel(channel)
+            if (
+                proposal.get("pubkey") != member["pubkey"]
+                or channel not in member["channel_ids"]
+                or not authoritative
+                or member["pubkey"] not in authoritative["roles"]
+            ):
+                raise ValueError(
+                    "Approval must target this agent's proposal in its channel"
+                )
+            operations = json.loads(row["body"]) if row else []
             if (
                 len(operations) != 1
                 or operations[0].get("action") != "execute_deployment"

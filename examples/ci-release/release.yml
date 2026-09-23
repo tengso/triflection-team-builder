@@ -1,0 +1,69 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Test with isolated fixtures
+        env:
+          HTI_TEST_DISABLE_READLINE: '1'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements-dev.txt
+          .venv/bin/python scripts/test.py -q
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build, smoke test and publish immutable release
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          registry="ghcr.io/${RELEASE_REPOSITORY,,}"
+          tag="$registry:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.source=https://github.com/$RELEASE_REPOSITORY" -t "$tag" .
+          scripts/image_smoke.sh "$tag"
+          docker push "$tag"
+          mkdir release-bundle
+          docker save "$tag" -o release-bundle/image.tar
+          export RELEASE_IMAGE=$(docker image inspect "$tag" --format '{{.Id}}')
+          export RELEASE_REGISTRY="$registry"
+          export RELEASE_DIGEST=$(docker image inspect "$tag" --format '{{index .RepoDigests 0}}' | cut -d@ -f2)
+          .venv/bin/python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          archive = Path('release-bundle/image.tar')
+          with archive.open('rb') as f:
+              checksum = hashlib.file_digest(f, 'sha256').hexdigest()
+          manifest = dict(repository=os.environ['GITHUB_REPOSITORY'], commit=os.environ['GITHUB_SHA'], run_id=int(os.environ['GITHUB_RUN_ID']), run_attempt=int(os.environ['GITHUB_RUN_ATTEMPT']), image=os.environ['RELEASE_IMAGE'], registry=os.environ['RELEASE_REGISTRY'], digest=os.environ['RELEASE_DIGEST'], archive_sha256=checksum)
+          Path('release-bundle/release.json').write_text(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: team-builder-release-${{ github.run_attempt }}
+          path: release-bundle/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 1
