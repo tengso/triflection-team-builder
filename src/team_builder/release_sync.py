@@ -100,7 +100,40 @@ def validate_bundle(path, run, config, destination):
             != run["head_sha"]
         ):
             raise ValueError("Image platform or revision mismatch")
+    manifest["image_config"] = metadata
+    expected_tag = f"{manifest['registry']}:ci-{run['id']}-{run['run_attempt']}"
+    if images[0].get("RepoTags") != [expected_tag]:
+        raise ValueError("Image archive tag does not match the CI run")
+    manifest["load_tag"] = expected_tag
     return manifest, image
+
+
+def loaded_image_id(manifest):
+    """Docker containerd stores use manifest IDs; classic stores use config IDs."""
+    result = subprocess.run(
+        ["docker", "image", "inspect", manifest["load_tag"]],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    image = json.loads(result.stdout)[0]
+    config = manifest["image_config"]
+    if (
+        image.get("Os") != config["os"]
+        or image.get("Architecture") != config["architecture"]
+        or image.get("RootFS", {}).get("Layers")
+        != config.get("rootfs", {}).get("diff_ids")
+        or any(
+            image.get("Config", {}).get(k) != v
+            for k, v in config.get("config", {}).items()
+        )
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", image.get("Id", ""))
+    ):
+        raise ValueError(
+            "Loaded Docker image does not match verified config and layers"
+        )
+    return image["Id"]
 
 
 def sync(root, config):
@@ -175,34 +208,56 @@ def sync(root, config):
                     prefix="release-", dir=directory
                 ) as tmp:
                     tmp = Path(tmp)
-                    response = client.get(
-                        base + f"/actions/artifacts/{artifact['id']}/zip"
-                    )
-                    if response.status_code != 302:
-                        raise ValueError(
-                            "Expected authenticated artifact download redirect"
+                    cache = directory / f"artifact-{artifact['id']}.zip"
+                    if cache.exists():
+                        with cache.open("rb") as cached:
+                            actual = (
+                                "sha256:"
+                                + hashlib.file_digest(cached, "sha256").hexdigest()
+                            )
+                        if cache.stat().st_size > LIMIT or actual != artifact.get(
+                            "digest"
+                        ):
+                            cache.unlink()
+                            raise ValueError("Cached artifact checksum mismatch")
+                        bundle = cache
+                    else:
+                        response = client.get(
+                            base + f"/actions/artifacts/{artifact['id']}/zip"
                         )
-                    location = response.headers["location"]
-                    if not location.startswith("https://"):
-                        raise ValueError("Artifact storage must use HTTPS")
-                    bundle = tmp / "bundle.zip"
-                    bundle_digest = hashlib.sha256()
-                    with httpx.stream(
-                        "GET", location, timeout=120, follow_redirects=False
-                    ) as download:
-                        download.raise_for_status()
-                        total = 0
-                        with bundle.open("wb") as out:
-                            for chunk in download.iter_bytes():
-                                total += len(chunk)
-                                if total > LIMIT:
-                                    raise ValueError(
-                                        "Release download exceeds size limit"
-                                    )
-                                bundle_digest.update(chunk)
-                                out.write(chunk)
-                    if artifact.get("digest") != "sha256:" + bundle_digest.hexdigest():
-                        raise ValueError("GitHub artifact digest mismatch")
+                        if response.status_code != 302:
+                            raise ValueError(
+                                "Expected authenticated artifact download redirect"
+                            )
+                        location = response.headers["location"]
+                        if not location.startswith("https://"):
+                            raise ValueError("Artifact storage must use HTTPS")
+                        bundle = tmp / "bundle.zip"
+                        bundle_digest = hashlib.sha256()
+                        with httpx.stream(
+                            "GET", location, timeout=120, follow_redirects=False
+                        ) as download:
+                            download.raise_for_status()
+                            total = 0
+                            with bundle.open("wb") as out:
+                                for chunk in download.iter_bytes():
+                                    total += len(chunk)
+                                    if total > LIMIT:
+                                        raise ValueError(
+                                            "Release download exceeds size limit"
+                                        )
+                                    bundle_digest.update(chunk)
+                                    out.write(chunk)
+                        if (
+                            artifact.get("digest")
+                            != "sha256:" + bundle_digest.hexdigest()
+                        ):
+                            raise ValueError("GitHub artifact digest mismatch")
+                        bundle.replace(cache)
+                        bundle = cache
+                        for previous in directory.glob("artifact-*.zip"):
+                            if previous != cache:
+                                previous.unlink()
                     manifest, image = validate_bundle(bundle, run, config, tmp)
                     subprocess.run(
                         ["docker", "image", "load", "--input", str(image)],
@@ -211,12 +266,7 @@ def sync(root, config):
                         stderr=subprocess.DEVNULL,
                         timeout=600,
                     )
-                    subprocess.run(
-                        ["docker", "image", "inspect", manifest["image"]],
-                        check=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
+                    host_image = loaded_image_id(manifest)
                     release_id = f"ci-{run['id']}-{run['run_attempt']}"
                     for env in config.environments:
                         operator_request(
@@ -228,9 +278,7 @@ def sync(root, config):
                                     "application": config.application,
                                     "environment": env,
                                     "commit": run["head_sha"],
-                                    "images": {
-                                        s: manifest["image"] for s in config.services
-                                    },
+                                    "images": {s: host_image for s in config.services},
                                 },
                             },
                         )
@@ -238,11 +286,12 @@ def sync(root, config):
                     state["latest"] = {
                         "release": release_id,
                         "commit": run["head_sha"],
-                        "image": manifest["image"],
+                        "image": host_image,
                         "registry_digest": manifest["digest"],
                         "run_url": run["html_url"],
                     }
                     private_write(state_file, state)
+                    cache.unlink(missing_ok=True)
                     print(
                         "Registered "
                         + release_id

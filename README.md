@@ -15,7 +15,7 @@ image IDs. It does not need Rust, a Hermes checkout, or a local Docker build.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.5.1/buzz_team_builder-0.5.1-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.5.2/buzz_team_builder-0.5.2-py3-none-any.whl'
 team-builder init \
   --bind 0.0.0.0 \
   --port 3100
@@ -105,7 +105,7 @@ team-builder proxy status
 team-builder proxy disable
 ```
 
-For an existing v0.5.0 installation, install the v0.5.1 wheel above and run
+For an existing v0.5.0 installation, install the latest wheel above and run
 `team-builder upgrade --manager-only` first; existing v0.5.0 workers support the
 managed proxy environment without a worker image replacement. This setting persists in
 installation state and applies to existing and future agents. It supplies

@@ -336,3 +336,72 @@ def test_private_channel_proposals_do_not_need_coa(manager, create_ops):
     manager.buzz.channels[channel]["roles"].pop(agent["pubkey"])
     with pytest.raises(ValueError, match="this agent"):
         request("approve", approval_event_id=approval)
+
+
+def test_proposal_publication_retry_and_other_agent_scope(manager, create_ops):
+    d = setup(manager)
+    manager.execute(message(manager), create_ops)
+    engineer = manager.resource("engineer", "agent")
+    engineer["deployments"] = ["portal/production"]
+    manager.save_agent(engineer)
+    channel = engineer["channel_ids"][0]
+    manager.execute(
+        message(manager, "Create second operator"),
+        [
+            {
+                "action": "create_agent",
+                "id": "operator",
+                "name": "Operator",
+                "instructions": "Release",
+                "channels": ["dev"],
+            }
+        ],
+    )
+    other = manager.resource("operator", "agent")
+    other["deployments"] = ["portal/production"]
+    manager.save_agent(other)
+    source = message(manager, "Prepare", channel=channel)
+    plan = d.plan("portal", release="r1")
+    original = manager.actor
+    failed_events = []
+
+    def unavailable(*args):
+        client = original(*args)
+
+        def fail(event):
+            failed_events.append(event["id"])
+            raise RuntimeError("relay temporarily unavailable")
+
+        client.publish = fail
+        return client
+
+    manager.actor = unavailable
+    with pytest.raises(RuntimeError):
+        manager.propose(
+            source,
+            [{"action": "execute_deployment", "plan_id": plan["plan_id"]}],
+            proposer="engineer",
+        )
+    manager.actor = original
+    proposal = manager.propose(
+        source,
+        [{"action": "execute_deployment", "plan_id": plan["plan_id"]}],
+        proposer="engineer",
+    )
+    assert failed_events == [proposal["message_id"]]
+    approval = message(
+        manager, "approve", channel=channel, reply=proposal["message_id"]
+    )
+    with pytest.raises(ValueError, match="this agent"):
+        handle(
+            manager,
+            "/deployments",
+            "Bearer " + token(manager.secrets, "operator"),
+            {
+                "agent": "operator",
+                "application": "portal",
+                "action": "approve",
+                "approval_event_id": approval,
+            },
+        )
+    assert not d.db.list("job")

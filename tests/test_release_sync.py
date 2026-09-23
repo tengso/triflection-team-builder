@@ -37,7 +37,10 @@ def bundle(tmp_path, **overrides):
     with tarfile.open(fileobj=stream, mode="w") as tar:
         for name, data in [
             ("config.json", raw),
-            ("manifest.json", b'[{"Config":"config.json"}]'),
+            (
+                "manifest.json",
+                b'[{"Config":"config.json","RepoTags":["ghcr.io/tengso/app:ci-123-1"]}]',
+            ),
         ]:
             entry = tarfile.TarInfo(name)
             entry.size = len(data)
@@ -192,6 +195,7 @@ def test_sync_retry_registers_both_environments_without_deployment(
     monkeypatch.setattr(module.httpx, "stream", stream)
     monkeypatch.setattr(module, "operator_request", operator)
     monkeypatch.setattr(module, "token_for", lambda *a: "private-test-token")
+    monkeypatch.setattr(module, "loaded_image_id", lambda manifest: manifest["image"])
     docker = Mock()
     monkeypatch.setattr(module.subprocess, "run", docker)
     with pytest.raises(RuntimeError):
@@ -205,3 +209,38 @@ def test_sync_retry_registers_both_environments_without_deployment(
     assert {r["environment"] for r in releases} == {"staging", "production"}
     assert len({r["images"]["ui"] for r in releases}) == 1
     assert all(r["action"] in ("inspect", "release") for r in calls)
+
+
+@pytest.mark.parametrize("host_id", ["a", "b"])
+def test_containerd_and_classic_loaded_image_identity(monkeypatch, host_id):
+    from types import SimpleNamespace
+
+    from team_builder import release_sync as module
+
+    config = {
+        "os": "linux",
+        "architecture": "amd64",
+        "config": {"Cmd": ["ui"]},
+        "rootfs": {"diff_ids": ["sha256:layer"]},
+    }
+    image = {
+        "Id": "sha256:" + host_id * 64,
+        "Os": "linux",
+        "Architecture": "amd64",
+        "Config": {"Cmd": ["ui"]},
+        "RootFS": {"Layers": ["sha256:layer"]},
+    }
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *a, **kw: SimpleNamespace(stdout=json.dumps([image])),
+    )
+    manifest = {
+        "load_tag": "ghcr.io/test/app:ci-1-1",
+        "image_config": config,
+        "image": "sha256:" + "a" * 64,
+    }
+    assert module.loaded_image_id(manifest) == image["Id"]
+    image["RootFS"]["Layers"] = ["sha256:other"]
+    with pytest.raises(ValueError, match="config and layers"):
+        module.loaded_image_id(manifest)
