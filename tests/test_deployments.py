@@ -405,3 +405,51 @@ def test_proposal_publication_retry_and_other_agent_scope(manager, create_ops):
             },
         )
     assert not d.db.list("job")
+
+
+def test_verified_mention_approval_remains_bound_to_exact_proposal(manager):
+    from team_builder.nostr import sign
+
+    d = setup(manager)
+    plan = d.plan("portal", release="r1")
+    proposal = manager.propose(
+        message(manager), [{"action": "execute_deployment", "plan_id": plan["plan_id"]}]
+    )
+    coa = manager.resource("coa", "agent")
+
+    def approval(content, mention, parent):
+        event = sign(
+            manager.owner_secret,
+            9,
+            [
+                ["h", manager.config["office"]],
+                ["e", parent, "", "reply"],
+                ["mention", mention, "agent-address"],
+            ],
+            content,
+        )
+        manager.buzz.events[event["id"]] = event
+        return event["id"]
+
+    for content, mention, parent in [
+        ("@Chief of Agents approve", "0" * 64, proposal["message_id"]),
+        ("@Someone approve", coa["pubkey"], proposal["message_id"]),
+        ("@Chief of Agents approve extra", coa["pubkey"], proposal["message_id"]),
+        ("@Chief of Agents approve", coa["pubkey"], "0" * 64),
+    ]:
+        with pytest.raises(ValueError):
+            manager.approve(approval_event_id=approval(content, mention, parent))
+    assert not d.db.list("job")
+    result = manager.approve(
+        approval_event_id=approval(
+            "@Chief of Agents approve", coa["pubkey"], proposal["message_id"]
+        )
+    )
+    assert result["results"][0]["state"] == "queued"
+
+
+def test_deployment_tools_have_direct_schemas(manager):
+    agent = manager.resource("coa", "agent")
+    agent["deployments"] = ["portal/production"]
+    config, _, _ = render(manager.config, manager.secrets, agent)
+    assert config["tools"]["tool_search"]["enabled"] == "off"

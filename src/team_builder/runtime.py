@@ -56,6 +56,10 @@ def render(config, secrets, agent):
             "tools", ["terminal", "file", "skills", "memory", "todo", "session_search"]
         )
     ) + (["mcp"] if coa or agent.get("mcp") or agent.get("deployments") else ["no_mcp"])
+    if agent.get("deployments"):
+        # Keep typed deployment schemas visible instead of routing through the
+        # generic tool_call(name, arguments) bridge, which can lose arguments.
+        document["tools"] = {"tool_search": {"enabled": "off"}}
     if config.get("base_url"):
         document["model"]["provider"] = "custom:team"
         document["providers"] = {

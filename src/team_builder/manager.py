@@ -571,7 +571,7 @@ class Manager:
         # Resolve from the signed reply itself, so approval also works in a new
         # Hermes thread which has never seen the proposal tool's return value.
         parents = [t[0] for t in replies if len(t) >= 3 and t[2] == "reply"]
-        if len(parents) != 1 or approval["content"].strip().lower() != "approve":
+        if len(parents) != 1:
             raise ValueError("Owner must reply 'approve' directly to this proposal")
         row = self.registry.db.execute(
             "SELECT * FROM proposals WHERE json_extract(event, '$.id')=?", (parents[0],)
@@ -579,6 +579,27 @@ class Manager:
         if not row or (proposal_id is not None and row["id"] != proposal_id):
             raise ValueError("Owner must reply 'approve' directly to this proposal")
         proposal = json.loads(row["event"])
+        text = approval["content"].strip()
+        # Buzz inserts an addressed agent mention into replies. Accept only the
+        # proposal signer's verified mention, never an arbitrary text prefix.
+        if [proposal["pubkey"], "agent-address"] in tags(approval, "mention"):
+            signer = next(
+                (
+                    a
+                    for a in self.registry.list("agent")
+                    if a["pubkey"] == proposal["pubkey"]
+                ),
+                None,
+            )
+            prefix = "@" + signer["name"] if signer else ""
+            if (
+                prefix
+                and text.startswith(prefix)
+                and text[len(prefix) : len(prefix) + 1].isspace()
+            ):
+                text = text[len(prefix) :].strip()
+        if text.lower() != "approve":
+            raise ValueError("Owner must reply 'approve' directly to this proposal")
         if tags(approval, "h") != tags(proposal, "h"):
             raise ValueError("Approval must be in the proposal channel")
         if approval["created_at"] < proposal["created_at"]:

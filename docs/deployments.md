@@ -245,3 +245,9 @@ The same image is registered in both environments as `ci-<run_id>-<run_attempt>`
 5. Confirm the job reaches `succeeded` and validate application/database behavior. Acceptance of a job alone is not success.
 
 Mission Control → Deployments → application details shows registered releases and image IDs, importer status/last check, running services, operation history and sanitized service diagnostics. Importer details live in the systemd journal and installation `release-sync/<application>/status.json`; failures record sanitized error classes and HTTP status, never credentials or signed download URLs. A successful check older than ten minutes is stale. History survives manager restarts. Existing UAT and production services are not restarted by import or manager-only upgrades.
+
+### Approval replies and tool-call troubleshooting
+
+Reply directly to the frozen proposal message published by `propose_deployment`, not to an agent's subsequent summary. Bare `approve` is accepted. Buzz's `@Agent Name approve` is also accepted when the signed mention identifies the proposal's author; arbitrary mentions, added instructions, wrong reply targets and agent-authored approvals are rejected. Known approval rejections return a specific safe explanation.
+
+Deployment-enabled agents expose their typed tools directly (`tools.tool_search.enabled: off`). This avoids Hermes's generic `tool_call` discovery wrapper producing name-only calls with no nested arguments. It does not change model selection or deployment permissions. A missing-argument failure does not prove provider corruption; inspect the recorded call first. After changing tool exposure, use a fresh Buzz thread if the previous conversation keeps repeating stale wrapper calls. Release synchronization itself does not increment the application's deployment revision or invalidate a frozen plan.

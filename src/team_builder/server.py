@@ -45,12 +45,26 @@ def serve(manager, address=("0.0.0.0", 8088)):
                         manager, self.path, self.headers.get("Authorization", ""), body
                     )
                     self.answer(200, result)
-                except Exception:  # noqa: BLE001 -- sanitize deployment boundary failures
+                except Exception as exc:  # noqa: BLE001 -- sanitize deployment boundary failures
+                    safe_errors = {
+                        "Owner must reply 'approve' directly to this proposal",
+                        "Approval must be in the proposal channel",
+                        "Approval predates proposal",
+                        "Only the human owner can authorize changes",
+                        "Approval must target this agent's proposal in its channel",
+                        "Reply approve to the frozen deployment proposal",
+                        "Proposal outside assigned scope",
+                        "Plan outside assigned scope",
+                        "Source message outside agent channels",
+                    }
+                    detail = (
+                        str(exc)
+                        if isinstance(exc, ValueError) and str(exc) in safe_errors
+                        else "Deployment request rejected; verify authorization, resource scope and plan revision"
+                    )
                     self.answer(
                         400,
-                        {
-                            "error": "Deployment request rejected; verify authorization, resource scope and plan revision"
-                        },
+                        {"error": detail},
                     )
                 return
             local_github = self.path == "/operator/github-access"
