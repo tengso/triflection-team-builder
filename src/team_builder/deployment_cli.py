@@ -11,7 +11,7 @@ def configure_parser(sub):
     )
     parser.add_argument(
         "request_file",
-        help="JSON request: register, release, grant, plan, execute, inspect or logs",
+        help="JSON request: register, release, grant, credential, profile, profiles, preflight, configure, plan, execute, inspect or logs",
     )
     parser.add_argument(
         "--secrets-file",
@@ -20,11 +20,21 @@ def configure_parser(sub):
     parser.add_argument(
         "--users-file", help="For register only: private users.yaml login file"
     )
+    parser.add_argument(
+        "--secret-file",
+        help="For credential only: import a private value or configuration file",
+    )
     parser.add_argument("--state-dir", default="~/.local/state/team-builder/default")
 
 
 def command(args):
     request = json.loads(Path(args.request_file).read_text())
+    if getattr(args, "secret_file", None):
+        if request.get("action") != "credential":
+            raise ValueError(
+                "Secret values are accepted only for credential provisioning"
+            )
+        request["value"] = Path(args.secret_file).read_text().rstrip("\n")
     if args.secrets_file:
         if request.get("action") != "register":
             raise ValueError(

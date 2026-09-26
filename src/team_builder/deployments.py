@@ -92,6 +92,9 @@ class Deployments:
             "stale": True,
         }
         self.stop = threading.Event()
+        from .deployment_profiles import Profiles
+
+        self.profiles = Profiles(self)
 
     def key(self, app, environment):
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,47}", app) or environment not in (
@@ -224,7 +227,14 @@ class Deployments:
         action="deploy",
         release=None,
         service=None,
+        profile=None,
     ):
+        if profile:
+            if action != "deploy" or service is not None:
+                raise ValueError("Profiles may be combined only with deploy")
+            if not release:
+                raise ValueError("No release available for this operation")
+            return self.profiles.plan(application, environment, profile, release)
         key = self.key(application, environment)
         with self.lock:
             app = self.get("app/" + key)
@@ -253,6 +263,8 @@ class Deployments:
                 "images": target["images"],
                 "spec_hash": generation(app["spec"]),
             }
+            if app.get("configuration"):
+                plan["configuration"] = app["configuration"]
             identifier = generation(plan)
             self.db.put("plan/" + identifier, "plan", plan)
         return {
@@ -281,6 +293,7 @@ class Deployments:
                 for j in self.db.list("job")
             ):
                 raise ValueError("A deployment is already active for this environment")
+            self.profiles.assert_current(plan)
             now = time.time()
             job = {
                 **plan,
@@ -299,7 +312,7 @@ class Deployments:
 
     @staticmethod
     def public_job(job):
-        return {
+        result = {
             k: job[k]
             for k in (
                 "id",
@@ -317,6 +330,8 @@ class Deployments:
                 "actor",
             )
         }
+        result["profile"] = job.get("configuration", {}).get("profile")
+        return result
 
     def event(self, job, message, state=None):
         job["updated_at"] = time.time()
@@ -369,6 +384,8 @@ class Deployments:
 
     def secret_values(self, app):
         key = self.key(app["spec"]["id"], app["spec"]["environment"])
+        if app.get("configuration"):
+            return self.profiles.resolve(app)[1]
         path = self.root / (key.replace("/", "-") + ".secrets.json")
         return json.loads(path.read_text()) if path.exists() else {}
 
@@ -420,7 +437,7 @@ class Deployments:
                 ]
             key = self.key(app["spec"]["id"], app["spec"]["environment"])
             credential_file = self.root / key.replace("/", "-") / "users.yaml"
-            if credential_file.is_file():
+            if credential_file.is_file() and not app.get("configuration"):
                 mounts.append(
                     {
                         "Type": "bind",
@@ -432,6 +449,7 @@ class Deployments:
                         "ReadOnly": True,
                     }
                 )
+            mounts.extend(self.profiles.mounts(app))
             port = str(service["port"]) + "/tcp"
             environment = {**service["environment"], **self.secret_values(app)}
             spec = {
@@ -511,9 +529,45 @@ class Deployments:
     def run_job(self, job):
         key = self.key(job["application"], job["environment"])
         app = self.get("app/" + key)
-        self.event(
-            job, "Applying pinned release; persistent volumes are retained", "running"
-        )
+        self.event(job, "Running configuration and dependency preflight", "running")
+        try:
+            self.profiles.assert_current(job)
+            result = self.profiles.preflight(
+                job["application"],
+                job["environment"],
+                profile=job.get("configuration", {}).get("profile"),
+            )
+            if not result["ready"]:
+                failures = ", ".join(
+                    c["kind"] + ":" + c["id"]
+                    for c in result["checks"]
+                    if c["status"] != "passed"
+                )
+                raise ValueError("Preflight failed: " + failures)
+        except Exception as exc:  # noqa: BLE001 -- fail before replacing application containers
+            app["revision"] = job["revision"] + 1
+            self.put("app/" + key, "application", app)
+            detail = (
+                str(exc)
+                if isinstance(exc, ValueError)
+                and str(exc).startswith("Preflight failed: ")
+                else "Preflight unavailable or configuration changed"
+            )
+            self.event(job, detail + "; application containers unchanged", "failed")
+            return
+        previous_configuration = app.get("configuration")
+        if job.get("configuration"):
+            app["configuration"] = job["configuration"]
+        if job["action"] == "configure":
+            app["revision"] = job["revision"] + 1
+            self.put("app/" + key, "application", app)
+            self.event(
+                job,
+                "Environment profile applied; deploy a release to update running containers",
+                "succeeded",
+            )
+            return
+        self.event(job, "Applying pinned release; persistent volumes are retained")
         try:
             if job["action"] == "restart":
                 for s in app["spec"]["services"]:
@@ -541,6 +595,10 @@ class Deployments:
             self.put("app/" + key, "application", app)
             self.event(job, "All service health checks passed", "succeeded")
         except Exception:  # noqa: BLE001 -- never expose Docker responses or credentials
+            if previous_configuration:
+                app["configuration"] = previous_configuration
+            else:
+                app.pop("configuration", None)
             self.event(job, "Operation failed; inspecting the previous release")
             if job["previous"] and job["action"] != "restart":
                 try:
@@ -620,6 +678,31 @@ class Deployments:
         except (OSError, ValueError, TypeError):
             return {"state": "unavailable"}
 
+    @staticmethod
+    def health_reason(state, service):
+        """Categorize bounded health-check output without returning application text."""
+        health = state.get("Health", {})
+        if health.get("Status") == "healthy":
+            return "Health check passed"
+        logs = health.get("Log", [])[-1:]
+        if not logs:
+            return "No health-check result available"
+        output = str(logs[0].get("Output", ""))[-8192:]
+        expected = service.get("health_token_env")
+        if expected and ("KeyError: '" + expected + "'") in output:
+            return "Missing health-check credential: " + expected
+        for marker, summary in (
+            ("HTTP Error 401", "Health endpoint rejected authentication (401)"),
+            ("HTTP Error 403", "Health endpoint denied access (403)"),
+            ("HTTP Error 404", "Health endpoint not found (404)"),
+            ("HTTP Error 500", "Health endpoint reported an application error (500)"),
+            ("Connection refused", "Health endpoint connection refused"),
+            ("timed out", "Health endpoint timed out"),
+        ):
+            if marker in output:
+                return summary
+        return "Health check failed; inspect application diagnostics"
+
     def observe(self):
         started = time.time()
         with self.lock:
@@ -642,6 +725,7 @@ class Deployments:
                     and r["environment"] == spec["environment"]
                 ],
                 "release_sync": self.release_sync_status(spec["id"]),
+                "configuration": self.profiles.list(spec["id"], spec["environment"]),
                 "services": [],
             }
             docker = Docker(self.manager.config["project"])
@@ -654,6 +738,7 @@ class Deployments:
                         status = {
                             "status": state.get("Status", "missing"),
                             "health": state.get("Health", {}).get("Status", "unknown"),
+                            "health_reason": self.health_reason(state, s),
                             "started_at": state.get("StartedAt"),
                             "restart_count": container.get("RestartCount"),
                             "image": container.get("Image"),

@@ -23,6 +23,11 @@ def handle(manager, path, authorization, body):
             "execute": service.enqueue,
             "inspect": service.read,
             "logs": service.logs,
+            "credential": service.profiles.credential,
+            "profile": service.profiles.register,
+            "profiles": service.profiles.list,
+            "preflight": service.profiles.preflight,
+            "configure": service.profiles.plan,
         }
         if action not in methods:
             raise ValueError("Unknown operator action")
@@ -69,6 +74,12 @@ def handle(manager, path, authorization, body):
                     and r["environment"] == environment
                 ]
             }
+    if action == "profiles":
+        return service.profiles.list(application, environment)
+    if action == "preflight":
+        return service.profiles.preflight(application, environment, **body)
+    if action == "configure":
+        return service.profiles.plan(application, environment, **body)
     if action == "logs":
         return service.logs(application, environment, **body)
     if action == "plan":

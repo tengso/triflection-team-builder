@@ -18,7 +18,12 @@ def run():
     with tempfile.TemporaryDirectory(prefix=project) as directory:
         manager = SimpleNamespace(
             root=Path(directory),
-            config={"project": project, "host_root": directory, "bind": "127.0.0.1"},
+            config={
+                "project": project,
+                "host_root": directory,
+                "bind": "127.0.0.1",
+                "manager_image": os.environ["PREFLIGHT_IMAGE"],
+            },
             lock=threading.RLock(),
         )
         docker = Docker(project)
@@ -68,6 +73,40 @@ def run():
             deployments.run_job(deployments.get("job/" + plan["plan_id"]))
             assert deployments.get("job/" + plan["plan_id"])["state"] == "succeeded"
             app = deployments.get("app/acceptance/staging")
+            profiles = deployments.profiles
+            profiles.credential("acceptance", "staging", "api-token", generate=True)
+            profiles.credential(
+                "acceptance", "staging", "login-file", value="isolated-private-file"
+            )
+            profiles.register(
+                "acceptance",
+                "staging",
+                {
+                    "id": "standard-v1",
+                    "secrets": {"CRM_REST_TOKEN": "api-token"},
+                    "files": {"/app/config/users.yaml": "login-file"},
+                    "required_env": ["CRM_REST_TOKEN"],
+                    "connections": [{"id": "api", "host": "api", "port": 8002}],
+                },
+            )
+            assert profiles.preflight("acceptance", "staging", "standard-v1")["ready"]
+            configured = profiles.plan(
+                "acceptance", "staging", "standard-v1", release="r1"
+            )
+            deployments.enqueue(configured["plan_id"])
+            deployments.run_job(deployments.get("job/" + configured["plan_id"]))
+            assert (
+                deployments.get("job/" + configured["plan_id"])["state"] == "succeeded"
+            )
+            app = deployments.get("app/acceptance/staging")
+            docker.exec(
+                deployments.name(app, "api"),
+                [
+                    "python",
+                    "-c",
+                    "from pathlib import Path; assert Path('/app/config/users.yaml').read_text() == 'isolated-private-file'",
+                ],
+            )
             original = deployments.inspect(app, "api")["Id"]
             docker.exec(
                 deployments.name(app, "api"),

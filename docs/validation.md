@@ -180,3 +180,33 @@ live language-model conversation.
 - Image workflow [35300322694](https://github.com/tengso/triflection-team-builder/actions/runs/35300322694) passed isolated Linux bootstrap and community-management validation, plus proxy application/removal in a live Hermes gateway. The native model-provider proxy selector used the configured proxy and bypassed internal relay/manager URLs.
 - The packaged installer passed a separate isolated Ubuntu test with v0.5.0 workers: a manager-only upgrade applied and removed proxy settings successfully. Worker containers were retained, and subsequent dashboard checks passed. Temporary test resources were removed.
 - Both published image digests and release tags were verified anonymously. No real model-provider request or connection to the user's cloud proxy was made; reachability from that LXD installation must be checked there.
+
+## Environment profiles — 2026-09-26
+
+- 188 unit tests passed, including credential isolation, immutable profiles,
+  credential rotation, approval binding, failed preflight without application
+  mutations, scoped probes, rollback configuration retention, and sanitized
+  health-check reasons. Ruff and JavaScript syntax checks passed.
+- The Linux integration harness on `myresearch` used a uniquely named disposable
+  application and network. It verified profile-backed deployment, generated API
+  credentials, a read-only file mount, a real TCP helper probe, manager restart
+  persistence, duplicate requests, container restart, release replacement,
+  rollback, retained data, and sanitized observations/logs. It removed its own
+  containers, volume and network afterward.
+- Reproduce with an application image compatible with the harness and a built
+  Hermes/manager image already loaded into the Linux Docker daemon:
+
+  ```bash
+  APPLICATION_IMAGE=sha256:YOUR_APPLICATION_IMAGE_ID \
+  PREFLIGHT_IMAGE=YOUR_MANAGER_IMAGE \
+    .venv/bin/python tests/integration/deployments.py
+  ```
+
+- Deployed the tested wheel in a local manager image on `myresearch` using a
+  manager-only upgrade. Agent and application containers were retained. This is
+  a deployment of the working tree, not a new published GitHub version.
+- Provisioned separate staging and production profiles and verified credential,
+  required-variable, file and MySQL TCP checks in both environments. No database
+  grants, migrations or production application deployments were performed by
+  this validation. Database authentication/schema and a real browser login remain
+  application-level checks after an owner-approved rollout.

@@ -450,3 +450,5 @@ the [MCP tool reference](docs/deployments.md#tools-available-to-assigned-agents)
 and [deployment and recovery](docs/deployments.md#deployment-and-recovery).
 
 CI-backed application releases: see [trusted GitHub Actions import and Cody/Oppo deployment approval](docs/deployments.md#ci-backed-releases-no-coa-required). No COA channel membership is required.
+
+The current source also supports [environment profiles and automated preflight](docs/deployments.md#environment-profiles-and-automated-preflight): provision named credentials once, then let the assigned agent propose a combined configuration-and-release plan. Mission Control shows profile references, prerequisite checks, and sanitized readiness reasons. This addition is not included in the v0.5.2 release wheel above.

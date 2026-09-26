@@ -251,3 +251,91 @@ Mission Control → Deployments → application details shows registered release
 Reply directly to the frozen proposal message published by `propose_deployment`, not to an agent's subsequent summary. Bare `approve` is accepted. Buzz's `@Agent Name approve` is also accepted when the signed mention identifies the proposal's author; arbitrary mentions, added instructions, wrong reply targets and agent-authored approvals are rejected. Known approval rejections return a specific safe explanation.
 
 Deployment-enabled agents expose their typed tools directly (`tools.tool_search.enabled: off`). This avoids Hermes's generic `tool_call` discovery wrapper producing name-only calls with no nested arguments. It does not change model selection or deployment permissions. A missing-argument failure does not prove provider corruption; inspect the recorded call first. After changing tool exposure, use a fresh Buzz thread if the previous conversation keeps repeating stale wrapper calls. Release synchronization itself does not increment the application's deployment revision or invalidate a frozen plan.
+
+## Environment profiles and automated preflight
+
+Provision an application's executable specification and named credentials once as
+its local operator. The assigned release agent can then select a profile, check
+prerequisites, and propose one combined configuration-and-release plan. This is
+identical for staging and production and does not require COA. Credentials,
+login files and database accounts remain separate per environment.
+
+For example, create a private credential request and import its value from a file:
+
+```json
+{"action":"credential","application":"my-app","environment":"production","id":"database-password"}
+```
+
+```bash
+team-builder deployment credential.json --secret-file /private/path/db-password
+```
+
+Use `"generate":true` instead of `--secret-file` for a generated API token.
+Import login/configuration files the same way with a different credential ID.
+Existing values are preserved on retry; changing a value requires `"rotate":true`.
+Values are never returned by the API or made available to agents. Version files
+are readable inside the application container through individually mounted,
+read-only files, with private parent directories on the host.
+
+Register a profile using a request such as:
+
+```json
+{
+  "action": "profile",
+  "application": "my-app",
+  "environment": "production",
+  "profile": {
+    "id": "standard-v1",
+    "values": {"DATABASE_HOST": "production-db", "LOGIN_FILE": "/app/config/users.yaml"},
+    "secrets": {"DATABASE_PASSWORD": "database-password", "API_TOKEN": "api-token"},
+    "files": {"/app/config/users.yaml": "login-file"},
+    "required_env": ["DATABASE_HOST", "DATABASE_PASSWORD", "API_TOKEN", "LOGIN_FILE"],
+    "connections": [{"id": "database", "host": "production-db", "port": 3306}]
+  }
+}
+```
+
+```bash
+team-builder deployment profile.json
+```
+
+Profiles are immutable: register a new ID to change configuration. Secret and
+file references resolve only within the specified application and environment.
+All services in that environment receive the profile's variables and files;
+register separate applications if they require different trust boundaries.
+File targets are restricted to single filenames under `/app/config/` or
+`/run/application-config/`. The operator must attach external dependencies to
+the application's Docker network with the configured DNS aliases.
+
+The assigned agent's workflow is:
+
+1. `list_environment_profiles` and `list_releases` for its application/environment.
+2. `check_deployment_preflight` with the selected `profile`.
+3. `plan_environment_configuration` with `profile` and `release` for a combined
+   deployment, or `plan_deployment` with both fields.
+4. `propose_deployment`, then consume the owner's direct reply using
+   `approve_deployment` and monitor `get_deployment_operation` to completion.
+5. Report actual health and diagnostic results, including incomplete checks.
+
+A configuration-only plan omits `release`; approval records the profile for the
+next deployment and does **not** reconfigure running containers. A restart also
+keeps existing container configuration. To apply new values to containers,
+approve a deployment with the desired profile and pinned release.
+
+Preflight checks credential availability, required environment variables, mounted
+file existence, and optional TCP reachability from an isolated helper on the
+application network. It also runs before execution, before replacing application
+containers. TCP success does not validate database passwords, grants, schemas,
+login roles or migrations. Application health remains the post-deploy gate.
+A failed preflight leaves existing application containers intact. Agents cannot
+supply arbitrary probe commands or provision credentials through these tools.
+
+Plans pin profile and credential versions. Credential rotation invalidates pending
+plans; create a new plan and obtain fresh approval. Old versions remain available
+for existing mounts and recovery. No database migrations or role grants are
+performed automatically. Back up the whole deployment state directory securely.
+
+Mission Control's deployment detail view shows the active profile, available
+profile/reference names, last preflight time, individual check results, and
+operation outcomes. Values and file contents are excluded. Checks are performed
+on request and execution, not continuously; their timestamps indicate their age.

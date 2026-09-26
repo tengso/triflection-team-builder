@@ -57,6 +57,7 @@ def plan_deployment(
     release: str | None = None,
     service: str | None = None,
     environment: str = "production",
+    profile: str | None = None,
 ) -> dict:
     """Freeze a deploy, restart, or rollback plan. This does not execute anything. Migrations are excluded; rollback restores images only."""
     return call(
@@ -66,6 +67,7 @@ def plan_deployment(
         action_type=operation,
         release=release,
         service=service,
+        profile=profile,
     )
 
 
@@ -119,6 +121,33 @@ def get_deployment_operation(
 ) -> dict:
     """Read a persistent deployment job and its timestamped progress. Queued is not success."""
     return call("operation", application, environment, operation_id=operation_id)
+
+
+@server.tool()
+def list_environment_profiles(
+    application: str, environment: str = "production"
+) -> dict:
+    """List operator-approved profiles, secret reference names and last preflight. Never returns values."""
+    return call("profiles", application, environment)
+
+
+@server.tool()
+def check_deployment_preflight(
+    application: str, environment: str = "production", profile: str | None = None
+) -> dict:
+    """Check required credentials, files and TCP dependencies before deployment. No database writes or application restarts."""
+    return call("preflight", application, environment, profile=profile)
+
+
+@server.tool()
+def plan_environment_configuration(
+    application: str,
+    profile: str,
+    environment: str = "production",
+    release: str | None = None,
+) -> dict:
+    """Freeze operator-defined profile and credential versions for owner approval. Include a release for one approved configure-and-deploy operation. Use propose_deployment and approve_deployment for this plan too."""
+    return call("configure", application, environment, profile=profile, release=release)
 
 
 if __name__ == "__main__":
