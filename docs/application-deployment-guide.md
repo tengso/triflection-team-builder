@@ -8,13 +8,12 @@ This guide uses **HTI Research Admin** as its example. Replace its repository,
 service commands, settings, and dependencies with those of your application.
 COA does not need to join release channels or operate deployments.
 
-> **Version requirement:** environment profiles and preflight require the current
-> implementation in both the CLI and manager image. They are installed on
-> `myresearch`, but are not included in the published v0.5.2 wheel. Installing that
-> wheel alone will not provide the profile commands below. See the
-> [image build instructions](../packaging/README.md#reproduce-locally) and
-> [manager upgrade instructions](deployments.md#deployment-and-recovery) when
-> preparing another host.
+> **Version requirement:** use Team Builder v0.6.0 or newer for both the CLI and
+> manager/agent runtime images. Install the wheel linked in the
+> [README](../README.md), then follow the
+> [upgrade instructions](../README.md#upgrade-an-existing-installation).
+> Existing installations must enable a standing release policy explicitly;
+> upgrading alone does not authorize automatic production releases.
 
 ## Start here
 
@@ -318,7 +317,7 @@ COA needs no deployment grant or release-channel membership.
 
 **Recommended: CI-backed releases.** The application repository's workflow tests,
 builds and smoke-tests the image. A host importer registers the successful release
-in both environments. Importing a release does not deploy it.
+in both environments. Importing alone does not deploy it; an enabled standing policy automatically selects matching registered releases for UAT and production.
 
 1. Adapt the [sample workflow](../examples/ci-release/release.yml) and
    [image smoke test](../examples/ci-release/image_smoke.sh) to your application.

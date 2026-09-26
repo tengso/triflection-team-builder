@@ -15,7 +15,7 @@ image IDs. It does not need Rust, a Hermes checkout, or a local Docker build.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.5.2/buzz_team_builder-0.5.2-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.6.0/buzz_team_builder-0.6.0-py3-none-any.whl'
 team-builder init \
   --bind 0.0.0.0 \
   --port 3100
@@ -453,6 +453,6 @@ and [deployment and recovery](docs/deployments.md#deployment-and-recovery).
 
 CI-backed application releases: see [trusted GitHub Actions import and Cody/Oppo deployment approval](docs/deployments.md#ci-backed-releases-no-coa-required). No COA channel membership is required.
 
-The current source also supports [environment profiles and automated preflight](docs/deployments.md#environment-profiles-and-automated-preflight): provision named credentials once, then let the assigned agent propose a combined configuration-and-release plan. Mission Control shows profile references, prerequisite checks, and sanitized readiness reasons. This addition is not included in the v0.5.2 release wheel above.
+Version 0.6.0 supports [environment profiles and automated preflight](docs/deployments.md#environment-profiles-and-automated-preflight): provision named credentials once, then let the assigned agent propose a combined configuration-and-release plan. Mission Control shows profile references, prerequisite checks, and sanitized readiness reasons.
 
-Automatic releases: [enable a standing UAT-to-production policy](docs/deployments.md#automatic-uat-acceptance-and-production-promotion) to remove routine owner approval and command entry. Acceptance evidence, scoped agent responsibility, bounded retries and status remain visible. This source addition is not in the published v0.5.2 wheel.
+Automatic releases: [enable a standing UAT-to-production policy](docs/deployments.md#automatic-uat-acceptance-and-production-promotion) to remove routine owner approval and command entry. Acceptance evidence, scoped agent responsibility, bounded retries and status remain visible. Included in v0.6.0.
