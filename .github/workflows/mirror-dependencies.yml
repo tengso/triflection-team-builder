@@ -1,6 +1,11 @@
 name: Mirror cached release dependencies
 on:
   workflow_dispatch:
+    inputs:
+      archive_url:
+        description: Temporary download URL for the checksum-pinned dependency archive
+        required: true
+        type: string
 permissions:
   contents: read
   packages: write
@@ -16,9 +21,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Recover pinned upstream Linux amd64 images
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPENDENCY_ARCHIVE_URL: ${{ inputs.archive_url }}
         run: |
-          gh release download v0.6.0 --repo tengso/triflection-team-builder --pattern team-builder-minio-dependencies.tar
+          curl --fail --location --proto =https --output team-builder-minio-dependencies.tar "$DEPENDENCY_ARCHIVE_URL"
           echo '9b233514f09dfba06592e10de0c1df4ce8ecb3409cc0e8b0ea5e75e3fb72075f  team-builder-minio-dependencies.tar' | sha256sum -c -
           docker load -i team-builder-minio-dependencies.tar
           docker tag sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9 ghcr.io/tengso/triflection-team-builder/buzz:dependency-minio-0.6.0
