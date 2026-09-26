@@ -11,7 +11,7 @@ def configure_parser(sub):
     )
     parser.add_argument(
         "request_file",
-        help="JSON request: register, release, grant, credential, profile, profiles, preflight, configure, plan, execute, inspect or logs",
+        help="JSON request: register, release, grant, credential, profile, profiles, preflight, configure, automation-policy, automation-status, plan, execute, inspect or logs",
     )
     parser.add_argument(
         "--secrets-file",

@@ -444,6 +444,8 @@ Mission Control → **Deployments** shows health, releases, persistent operation
 and sanitized diagnostic logs with local timestamps. Deployment actions and agent
 access assignment currently use the CLI or Buzz rather than dashboard controls.
 
+Start with the [UAT and production deployment user guide](docs/application-deployment-guide.md) for one-time setup, agent-led releases, approvals, and troubleshooting. It uses HTI Research Admin as a worked example.
+
 See the [deployment service guide](docs/deployments.md) for architecture,
 [agent assignment and revocation](docs/deployments.md#assign-a-selected-agent),
 the [MCP tool reference](docs/deployments.md#tools-available-to-assigned-agents),
@@ -452,3 +454,5 @@ and [deployment and recovery](docs/deployments.md#deployment-and-recovery).
 CI-backed application releases: see [trusted GitHub Actions import and Cody/Oppo deployment approval](docs/deployments.md#ci-backed-releases-no-coa-required). No COA channel membership is required.
 
 The current source also supports [environment profiles and automated preflight](docs/deployments.md#environment-profiles-and-automated-preflight): provision named credentials once, then let the assigned agent propose a combined configuration-and-release plan. Mission Control shows profile references, prerequisite checks, and sanitized readiness reasons. This addition is not included in the v0.5.2 release wheel above.
+
+Automatic releases: [enable a standing UAT-to-production policy](docs/deployments.md#automatic-uat-acceptance-and-production-promotion) to remove routine owner approval and command entry. Acceptance evidence, scoped agent responsibility, bounded retries and status remain visible. This source addition is not in the published v0.5.2 wheel.

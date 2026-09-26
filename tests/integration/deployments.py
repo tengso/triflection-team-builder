@@ -156,17 +156,73 @@ def run():
             logs = deployments.logs("acceptance", "staging", "api")
             assert "isolated-health-only" not in json.dumps([snapshot, logs])
             assert logs["entries"]
+            production = {**application, "environment": "production"}
+            deployments.register(production)
+            deployments.profiles.credential(
+                "acceptance", "production", "api-token", generate=True
+            )
+            deployments.profiles.register(
+                "acceptance",
+                "production",
+                {"id": "standard-v1", "secrets": {"CRM_REST_TOKEN": "api-token"}},
+            )
+            for env in ("staging", "production"):
+                deployments.release(
+                    {
+                        "id": "ci-1-1",
+                        "application": "acceptance",
+                        "environment": env,
+                        "commit": "c" * 40,
+                        "images": {"api": image},
+                    }
+                )
+            # Scope authorization is exercised by unit/API tests. This isolated
+            # Docker fixture has no Buzz identities or agent containers.
+            deployments.authorized = lambda agent, scope: None
+            deployments.automation.configure(
+                {
+                    "application": "acceptance",
+                    "enabled": True,
+                    "staging_agent": "tester",
+                    "production_agent": "operator",
+                    "staging_profile": "standard-v1",
+                    "production_profile": "standard-v1",
+                    "checks": [
+                        {
+                            "id": "authenticated-health",
+                            "service": "api",
+                            "command": [
+                                "python",
+                                "-c",
+                                "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8002/health',headers={'Authorization':'Bearer '+os.environ['CRM_REST_TOKEN']}); assert urllib.request.build_opener(urllib.request.ProxyHandler({})).open(r,timeout=3).status == 200",
+                            ],
+                        }
+                    ],
+                }
+            )
+            for _ in range(6):
+                deployments.automation.tick()
+                for job in deployments.db.list("job"):
+                    if job["state"] in ("queued", "running"):
+                        deployments.run_job(job)
+            assert (
+                deployments.automation.status("acceptance")["runs"][0]["state"]
+                == "succeeded"
+            )
             print(
-                "PASS: deploy, persistent queue, deduplication, restart, release update, rollback, retained data, snapshots and sanitized logs"
+                "PASS: profile deployment, restart persistence, rollback, retained data, automatic UAT acceptance and identical-image production promotion"
             )
         finally:
-            app = deployments.get("app/acceptance/staging")
-            name = deployments.name(app, "api")
-            if docker.inspect(name):
-                docker.stop(name)
-                docker.call("DELETE", "/containers/" + name)
-            docker.call("DELETE", "/volumes/" + name + "-data")
-            docker.call("DELETE", "/networks/" + deployments.name(app))
+            for env in ("staging", "production"):
+                app = deployments.db.get("app/acceptance/" + env)
+                if not app:
+                    continue
+                name = deployments.name(app, "api")
+                if docker.inspect(name):
+                    docker.stop(name)
+                    docker.call("DELETE", "/containers/" + name)
+                docker.call("DELETE", "/volumes/" + name + "-data")
+                docker.call("DELETE", "/networks/" + deployments.name(app))
 
 
 if __name__ == "__main__":

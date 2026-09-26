@@ -150,5 +150,19 @@ def plan_environment_configuration(
     return call("configure", application, environment, profile=profile, release=release)
 
 
+@server.tool()
+def inspect_release_automation(
+    application: str, environment: str = "production"
+) -> dict:
+    """Read automatic release policy, verified UAT handoff, check outcomes and plain-language blockers. Never claim UAT acceptance yourself."""
+    return call("automation-status", application, environment)
+
+
+@server.tool()
+def retry_automatic_release(application: str, environment: str = "production") -> dict:
+    """After investigating and fixing a technical blocker, retry your assigned blocked stage under the existing operator policy. Maximum two retries; cannot change policy or bypass acceptance."""
+    return call("automation-retry", application, environment)
+
+
 if __name__ == "__main__":
     server.run()

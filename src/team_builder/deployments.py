@@ -95,6 +95,9 @@ class Deployments:
         from .deployment_profiles import Profiles
 
         self.profiles = Profiles(self)
+        from .release_automation import Automation
+
+        self.automation = Automation(self)
 
     def key(self, app, environment):
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,47}", app) or environment not in (
@@ -531,6 +534,7 @@ class Deployments:
         app = self.get("app/" + key)
         self.event(job, "Running configuration and dependency preflight", "running")
         try:
+            self.automation.authorize_job(job)
             self.profiles.assert_current(job)
             result = self.profiles.preflight(
                 job["application"],
@@ -726,6 +730,7 @@ class Deployments:
                 ],
                 "release_sync": self.release_sync_status(spec["id"]),
                 "configuration": self.profiles.list(spec["id"], spec["environment"]),
+                "automation": self.automation.status(spec["id"]),
                 "services": [],
             }
             docker = Docker(self.manager.config["project"])
@@ -803,6 +808,7 @@ class Deployments:
                         ]
                     for job in jobs:
                         self.run_job(job)
+                    self.automation.tick()
                 except Exception:  # noqa: BLE001 -- durable jobs retry after transient storage failures
                     print(
                         "Deployment worker pending; retrying durable jobs", flush=True

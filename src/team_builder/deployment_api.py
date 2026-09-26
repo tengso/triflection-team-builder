@@ -28,6 +28,8 @@ def handle(manager, path, authorization, body):
             "profiles": service.profiles.list,
             "preflight": service.profiles.preflight,
             "configure": service.profiles.plan,
+            "automation-policy": service.automation.configure,
+            "automation-status": service.automation.status,
         }
         if action not in methods:
             raise ValueError("Unknown operator action")
@@ -74,6 +76,10 @@ def handle(manager, path, authorization, body):
                     and r["environment"] == environment
                 ]
             }
+    if action == "automation-status":
+        return service.automation.status(application, environment)
+    if action == "automation-retry":
+        return service.automation.retry(application, environment, agent)
     if action == "profiles":
         return service.profiles.list(application, environment)
     if action == "preflight":

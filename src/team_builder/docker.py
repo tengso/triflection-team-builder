@@ -82,7 +82,7 @@ class Docker:
         created = self.call(
             "POST",
             f"/containers/{quote(name, safe='')}/exec",
-            json={"Cmd": command, "AttachStdout": True, "AttachStderr": True},
+            json={"Cmd": command, "AttachStdout": False, "AttachStderr": False},
         )
         # Detached execution avoids reflecting command output (which may contain credentials).
         self.call("POST", f"/exec/{created['Id']}/start", json={"Detach": True})

@@ -56,6 +56,10 @@ def serve(manager, address=("0.0.0.0", 8088)):
                         "Proposal outside assigned scope",
                         "Plan outside assigned scope",
                         "Source message outside agent channels",
+                        "Only the assigned release agent may retry this stage",
+                        "No automatic release run",
+                        "No retryable stage in this scope",
+                        "Retry limit reached; fix configuration or publish a new release",
                     }
                     detail = (
                         str(exc)

@@ -210,3 +210,31 @@ live language-model conversation.
   grants, migrations or production application deployments were performed by
   this validation. Database authentication/schema and a real browser login remain
   application-level checks after an owner-approved rollout.
+
+## Automatic UAT acceptance and production promotion — 26 September 2026
+
+- Local validation: **200 tests passed**, Ruff checks/formatting passed, and the
+  packaged dashboard JavaScript passed Node syntax validation. Coverage includes
+  policy revocation, stale UAT evidence, agent isolation, bounded retries, durable
+  restart/idempotency, failed acceptance, and notification retry deduplication.
+- The isolated Linux deployment harness passed on `myresearch`, including profile
+  deployment, restart persistence, rollback, retained data, automatic UAT checks,
+  and promotion of identical images to production. Disposable resources were removed.
+- Detached Docker checks now leave stdout/stderr unattached. Their output is not
+  consumed; attaching those streams had contributed to an observed Docker FIFO
+  stall on this host. The subsequent complete Linux run passed. This does not
+  claim to fix every possible Docker/runtime stall.
+- Deployed manager image `98a4a9617c89` and refreshed Cody/Oppo gateway configuration
+  without replacing their containers. Recovered Windy's unhealthy gateway, which
+  delayed manager bootstrap, without replacing its container.
+- Enabled HTI's standing policy: Cody owns staging, Oppo owns production, both use
+  `standard-v1`; notifications go to Production Operations. COA has no deployment
+  access. The live `ci-35807996920-1` run completed successfully without a per-release
+  owner approval. UAT applied its profile; already-matching healthy production
+  containers were retained. Both environments passed UI HTTP, authenticated API,
+  read-only MySQL schema access, and login-file structure checks. Two signed handoff
+  notifications were delivered.
+- These checks are mechanical acceptance, not exhaustive business validation or a
+  browser login test. No database migrations or database grants were performed.
+  Production keeps its separate login file. The change is installed from the
+  working tree on this host; it is not a new published GitHub release.

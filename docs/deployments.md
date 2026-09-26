@@ -1,5 +1,7 @@
 # Deployment management service
 
+For a step-by-step walkthrough, read [Deploy applications to UAT and production](application-deployment-guide.md). This page is the architecture and tool reference.
+
 Deployment management is a generic, installation-scoped component of the Team Builder toolkit. The owner or Chief of Agents (COA) can assign it to any selected managed agent. **Cody is an example assignee, not a dependency or a special agent role.** Application registrations, releases, credentials, and deployment history belong to the installation rather than an agent workspace.
 
 ## Architecture and lifecycle
@@ -106,9 +108,14 @@ Every tool takes an `application`; `environment` defaults to `production`. Only 
 | MCP tool | Purpose and additional parameters |
 | --- | --- |
 | `inspect_application` | Read current service health, release, and recent jobs. |
+| `inspect_release_automation` | Read the standing policy, automatic runs, acceptance results and agent handoff. |
+| `retry_automatic_release` | Retry the assigned blocked stage after correcting its cause, within the standing policy and retry limit. |
 | `list_releases` | List operator-registered immutable releases. |
 | `get_service_logs` | Read bounded sanitized diagnostics for `service`. |
-| `plan_deployment` | Freeze a plan with `operation` (`deploy`, `restart`, or `rollback`), `release` for deploy, and optional `service` for restart. Does not execute changes. |
+| `plan_deployment` | Freeze a plan with `operation` (`deploy`, `restart`, or `rollback`), `release` and optional `profile` for deploy, and optional `service` for restart. Does not execute changes. |
+| `list_environment_profiles` | List available profile/reference names and the last preflight result. No values are returned. |
+| `check_deployment_preflight` | Check credentials, required settings/files and TCP dependencies for an optional `profile`. |
+| `plan_environment_configuration` | Freeze a `profile`; include `release` to apply configuration and deploy in one approved operation. |
 | `propose_deployment` | Publish the frozen `plan_id` for approval in the thread identified by `source_event_id`. |
 | `execute_deployment` | Queue `plan_id` using a direct, specific signed owner instruction identified by `source_event_id`. |
 | `approve_deployment` | Execute the exact frozen proposal referenced by the owner's `approval_event_id`. |
@@ -339,3 +346,98 @@ Mission Control's deployment detail view shows the active profile, available
 profile/reference names, last preflight time, individual check results, and
 operation outcomes. Values and file contents are excluded. Checks are performed
 on request and execution, not continuously; their timestamps indicate their age.
+
+## Automatic UAT acceptance and production promotion
+
+An operator can now authorize routine releases once, through an **enabled release
+policy**. This is a separate authorization mode from per-release Buzz approval.
+Existing applications remain manual unless a policy is explicitly enabled.
+
+The manager selects the highest registered `ci-<run_id>-<attempt>` release, checks
+that staging and production registrations have identical commits and images,
+applies the configured staging profile, runs acceptance checks, then hands the
+same release to the production role. It records exact UAT configuration,
+revision, container/image identities and check outcomes; changed or unhealthy UAT
+invalidates production execution. Already healthy deployments with the exact
+release and profile are checked without unnecessary container replacement.
+
+The durable workflow belongs to the manager. Cody and Oppo are accountable agents,
+not processes that must stay in a long chat loop. Agent scope/state is checked at
+queue/execution time. Their tokens cannot create policy, redefine tests, provision
+credentials or manufacture acceptance evidence. Stopping/revoking an assigned
+agent prevents its automatic stage from executing. COA is not involved.
+
+### Enable a policy once
+
+Register both applications, profiles, credentials, CI releases and agent grants
+first. Acceptance checks are operator-defined commands executed inside registered
+application containers. Use bounded **read-only, repeatable** checks. Raw output is
+discarded; only named pass/fail results are recorded. Do not embed credentials in
+commands. Tests use credentials already available to the application.
+
+For the HTI example, generate a policy using the sample file from this checkout:
+
+```bash
+python examples/release-automation/hti-policy.py --enable > automatic-releases.json
+team-builder deployment automatic-releases.json
+```
+
+Review/adapt the file before enabling on a different application. Enabling it can
+immediately process the newest registered CI release, including one that already
+existed before policy registration. Commands/checks are privileged operator input;
+application code and CI must already be trusted to run in the application container.
+No arbitrary command supplied by an agent or a Buzz message becomes a check.
+
+The [HTI example generator](../examples/release-automation/hti-policy.py) checks UI
+HTTP readiness, authenticated API readiness, a read of the existing CRM override
+table, and login-file structure with hashed passwords. These are automated
+acceptance checks, not proof that every UI workflow or user role works. Add your
+application's read-only functional test entrypoints for broader coverage.
+
+For other applications the policy fields are:
+
+| Field | Meaning |
+| --- | --- |
+| `application` | Registered application ID |
+| `enabled` | Explicit standing authorization for staging and production |
+| `staging_agent`, `production_agent` | Agents with those exact deployment grants |
+| `staging_profile`, `production_profile` | Operator-provisioned profiles |
+| `checks` | One to eight `{id, service, command, timeout}` checks; timeout 1–30 seconds, run in both environments |
+| `notification_channel` | Optional managed channel ID shared by both release agents |
+
+Use a shared notification channel for two distinct agents. Handoff, completion and
+failure messages mention the responsible agent and are retried using the same
+signed event. Delivery failure does not stop deployment; dashboard records remain
+available. Omit this field for one agent responsible for both scopes.
+
+### Routine operation
+
+Once trusted CI imports a release, no human needs to supply release IDs, profile
+names, deployment commands or routine approval replies. The worker performs UAT,
+acceptance, handoff, production deployment and production checks automatically.
+The assigned agents use `inspect_release_automation` to investigate status and
+`retry_automatic_release` after fixing a technical blocker. A blocked run permits
+a maximum of two agent-requested retries. Repeated polling does not retry it.
+New releases, credential versions or policy versions create a new run.
+
+Failed UAT blocks promotion. A failed deployment uses existing image recovery
+behavior. Failed post-deployment functional checks stop the workflow and notify
+the responsible role; they do not automatically repair databases or roll back
+potential application data changes. Technical failures require investigation by
+the assigned agent, not an owner approval loop. Missing credentials produce a
+plain-language owner request. Database migrations and broader privileges remain
+outside this policy and are never inferred from a failure.
+
+Mission Control shows policy, responsible roles, release stage, status, reason and
+owner-input requests. Exact check results and UAT evidence are available through
+the automation status tool. Operator inspection:
+
+```json
+{"action":"automation-status","application":"hti-research-admin"}
+```
+
+To pause, submit the same policy with `enabled: false`. Queued automatic jobs
+recheck policy before touching containers. A job already applying a release may
+finish; pausing does not stop application containers. Changing checks or profile
+selection creates a new policy version and invalidates older queued authority.
+Manual frozen proposals remain available when automatic policy is disabled.
