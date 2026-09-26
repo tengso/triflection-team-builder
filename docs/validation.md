@@ -238,3 +238,17 @@ live language-model conversation.
   browser login test. No database migrations or database grants were performed.
   Production keeps its separate login file. The change is installed from the
   working tree on this host; it is not a new published GitHub release.
+
+## v0.6.0 release validation
+
+GitHub Actions run `36244801711` passed on 26 September 2026, building source
+`44cbe8b4de31876c666d82cfd3617738628a03cf`. The release wheel pins that run's
+verified Buzz and Hermes digests. CI passed 200 tests and fresh Linux Compose
+bootstrap, identity-preserving resume, tunnel/internal routing, dashboard
+authentication and secret isolation, configuration/proxy reload, and assigned-agent
+deployment proposal publication without COA membership.
+
+The first candidate failed because Quay rejected the pinned MinIO dependency.
+Unmodified cached Linux amd64 dependencies were mirrored into the existing public
+package, verified for anonymous access, and pinned before the successful rerun.
+The release includes the image archive and matching upstream source archives.
