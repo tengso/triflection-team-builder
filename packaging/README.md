@@ -74,3 +74,22 @@ published image digests do not gain this capability automatically.
 The Hermes patch in `src/team_builder/resources/patch_hermes.py` supplies verified
 message context to COA and enables owner messages in its office without mentions.
 Patches fail on incompatible upstream source instead of silently dropping behavior.
+
+## MinIO dependency mirrors
+
+v0.6.0 pins unmodified Linux amd64 MinIO and mc images mirrored into the existing
+public `buzz` package under `dependency-minio-0.6.0` and `dependency-mc-0.6.0`. These
+tags contain dependencies, not the Buzz runtime. Fresh-install validation found
+the previous Quay references unavailable to anonymous pulls. Existing installations
+retain their infrastructure image pins.
+
+- MinIO: `RELEASE.2025-09-07T16-13-09Z`, recovered from original
+  `quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+- mc: `RELEASE.2025-08-13T08-35-41Z`, recovered from original
+  `quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727`.
+
+The release includes the cached upstream image archive and matching upstream source
+archives. Image configurations, filesystem layers and license notices are retained;
+the mirror contains no installation data or credentials. The recovery workflow
+checks the archive checksum before loading it and uses repository-scoped package
+credentials. Its temporary archive URL conveys read access only.

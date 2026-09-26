@@ -23,8 +23,8 @@ from .storage import private_write
 INFRA_IMAGES = {
     "postgres": "postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
     "redis": "redis@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
-    "minio": "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
-    "mc": "quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+    "minio": "ghcr.io/tengso/triflection-team-builder/buzz@sha256:52dfd5c0bbd38d3219f2058c7af216d9f9a27a994b7b5baad09bbd38866015ff",
+    "mc": "ghcr.io/tengso/triflection-team-builder/buzz@sha256:bdfae21c72b19fae5a005c56dddba25a873d75fac3dda60f55aea7e417382cbe",
 }
 PUBLISHED_IMAGES = json.loads(
     files("team_builder").joinpath("resources/images.json").read_text()
