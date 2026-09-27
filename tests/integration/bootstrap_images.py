@@ -38,55 +38,64 @@ def main():
         "/opt/hermes/.venv/bin/python",
         hermes,
         "-c",
-        "import team_builder.server, team_builder.mcp, plugins.platforms.buzz.adapter",
+        "import team_builder.server, team_builder.mcp, team_builder.worker",
     )
-    prompt_test = subprocess.run(
-        [
+    run(
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "/opt/hermes/.venv/bin/hermes-acp",
+        hermes,
+        "--help",
+    )
+    run("docker", "run", "--rm", "--entrypoint", "buzz-acp", hermes, "--help")
+    harness_images = {
+        name: os.environ.get(name.upper() + "_IMAGE")
+        for name in ("pi", "codex", "devin")
+    }
+    for name, image in harness_images.items():
+        if not image:
+            continue
+        try:
+            run("docker", "image", "inspect", image)
+        except subprocess.CalledProcessError:
+            print("Pulling " + image, flush=True)
+            subprocess.run(["docker", "pull", image], check=True)
+        labels = json.loads(
+            run(
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                "{{json .Config.Labels}}",
+                image,
+            )
+        )
+        assert labels.get("io.team-builder.harness") == name, (name, labels)
+        run(
             "docker",
             "run",
             "--rm",
-            "-i",
-            "-e",
-            "HERMES_HOME=/tmp/hermes-prompt-test",
             "--entrypoint",
-            "/opt/hermes/.venv/bin/python",
-            hermes,
-            "-",
-        ],
-        input=Path(__file__).with_name("hermes_prompt_refresh.py").read_text(),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if prompt_test.returncode:
-        raise RuntimeError(prompt_test.stdout + prompt_test.stderr)
-    print(prompt_test.stdout, flush=True)
-    approval_test = subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-i",
-            "-e",
-            "HERMES_HOME=/tmp/hermes-approval-test",
-            "--entrypoint",
-            "/opt/hermes/.venv/bin/python",
-            hermes,
-            "-",
-        ],
-        input=Path(__file__).with_name("buzz_approval.py").read_text(),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if approval_test.returncode:
-        raise RuntimeError(approval_test.stdout + approval_test.stderr)
-    print(approval_test.stdout, flush=True)
+            "/opt/team-builder/.venv/bin/python",
+            image,
+            "-c",
+            "import team_builder.worker, team_builder.harness_config",
+        )
+        run("docker", "run", "--rm", "--entrypoint", "buzz-acp", image, "--help")
+        adapter = {"pi": "pi-acp", "codex": "codex-acp", "devin": "devin"}[name]
+        run("docker", "run", "--rm", "--entrypoint", adapter, image, "--version")
     with tempfile.TemporaryDirectory(prefix="team-builder-images-") as temp:
         directory = Path(temp)
         owner, provider = directory / "owner.key", directory / "provider.key"
         owner.write_text(key())
-        provider.write_text("not-a-real-provider-key-no-model-calls")
+        # PROVIDER_KEY_FILE opts into live model calls for the harness checks.
+        provider.write_text(
+            Path(os.environ["PROVIDER_KEY_FILE"]).read_text().strip()
+            if os.environ.get("PROVIDER_KEY_FILE")
+            else "not-a-real-provider-key-no-model-calls"
+        )
         owner.chmod(0o600)
         provider.chmod(0o600)
         state = directory / "state"
@@ -114,7 +123,7 @@ def main():
                     "--port",
                     "3310",
                     "--model",
-                    "openai/gpt-4.1-mini",
+                    os.environ.get("PROVIDER_MODEL", "openai/gpt-4.1-mini"),
                     "--owner-key-file",
                     str(owner),
                     "--provider-key-file",
@@ -123,6 +132,12 @@ def main():
                     buzz,
                     "--runtime-image",
                     hermes,
+                    *(
+                        arg
+                        for name, image in harness_images.items()
+                        if image
+                        for arg in ("--" + name + "-image", image)
+                    ),
                 ),
                 flush=True,
             )
@@ -184,6 +199,37 @@ def main():
             from agent_proxy import exercise as exercise_proxy
 
             exercise_proxy(state)
+            # Harness checks run first: the management exercise archives COA and deletes the office.
+            if os.environ.get("EXERCISE_HARNESSES") == "1":
+                script = Path(__file__).with_name("harnesses.py").read_text()
+                script += "\nexercise(" + repr(owner.read_text().strip()) + ")\n"
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        "-i",
+                        *(
+                            arg
+                            for name in (
+                                "HARNESS_EXPECT_FAILURE",
+                                "TEAM_BUILDER_DEVIN_CREDENTIAL",
+                                "APPLICATION_IMAGE",
+                            )
+                            if os.environ.get(name)
+                            for arg in ("-e", f"{name}={os.environ[name]}")
+                        ),
+                        before["project"] + "-manager-1",
+                        "/opt/hermes/.venv/bin/python",
+                        "-",
+                    ],
+                    check=False,
+                    input=script,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode:
+                    raise RuntimeError(result.stdout + result.stderr)
+                print(result.stdout, flush=True)
             if os.environ.get("EXERCISE_MANAGEMENT") == "1":
                 script = Path(__file__).with_name("community_operations.py").read_text()
                 script += "\nexercise(" + repr(owner.read_text()) + ")\n"

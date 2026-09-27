@@ -107,6 +107,8 @@ class FakeDocker:
     def __init__(self):
         self.running = set()
         self.stops = []
+        self.specs = {}
+        self.restarts = []
 
     def ready(self, name):
         return name in self.running
@@ -114,6 +116,21 @@ class FakeDocker:
     def stop(self, name):
         self.stops.append(name)
         self.running.discard(name)
+
+    def inspect(self, name):
+        if name not in self.running:
+            return None
+        return {"Id": name, "State": {"Running": True}}
+
+    def ensure(self, name, spec, generation):
+        self.specs[name] = spec
+        self.running.add(name)
+
+    def wait_ready(self, name, timeout=180):
+        pass
+
+    def restart(self, name, python="/opt/hermes/.venv/bin/python"):
+        self.restarts.append((name, python))
 
 
 @pytest.fixture

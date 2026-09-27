@@ -8,8 +8,11 @@ includes an installer wheel and an `images.json` manifest with the build commit.
 
 | Image | Contents |
 | --- | --- |
-| `ghcr.io/tengso/triflection-team-builder/buzz` | Buzz relay, administration CLI, and agent CLI |
-| `ghcr.io/tengso/triflection-team-builder/hermes` | Hermes, Buzz CLI, Team Builder manager/MCP/worker, and checked adapter patch |
+| `ghcr.io/tengso/triflection-team-builder/buzz` | Buzz relay, administration CLI, agent CLI, and `buzz-acp` gateway |
+| `ghcr.io/tengso/triflection-team-builder/hermes` | Hermes (installed with the `acp` extra, providing `hermes-acp`), `buzz-acp`, Buzz CLI, Team Builder manager/MCP/worker |
+| `ghcr.io/tengso/triflection-team-builder/pi` | Pi CLI, `pi-acp` ACP adapter, `buzz-acp`, Buzz CLI, and the Team Builder worker |
+| `ghcr.io/tengso/triflection-team-builder/codex` | `@agentclientprotocol/codex-acp` (which bundles the Codex runtime), `buzz-acp`, Buzz CLI, and the Team Builder worker |
+| `ghcr.io/tengso/triflection-team-builder/devin` | Devin CLI, `buzz-acp`, Buzz CLI, and the Team Builder worker |
 
 The initial platform is `linux/amd64`. Both images contain source revision labels,
 upstream license files, and source provenance JSON under `/usr/share/team-builder`.
@@ -21,7 +24,7 @@ builder code. All agents and the manager use the same Hermes runtime image.
 Run the **Publish images** workflow with a new semantic version:
 
 ```sh
-gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.6.0
+gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.7.0
 ```
 
 The workflow downloads the exact upstream commits in `sources.json`, applies the
@@ -35,7 +38,8 @@ builder source commit. GitHub produces build provenance and SBOM attestations.
 The workflow uses its repository-scoped `GITHUB_TOKEN` with `packages:write`;
 maintainers do not need to store a Docker Hub password or personal publishing token.
 GHCR initially creates packages as private: set each package's visibility to public
-for anonymous installs. No secrets should be added to either Docker build context.
+for anonymous installs. Since 0.7.0 the workflow also publishes `pi`, `codex` and
+`devin` runtime images; their packages must be made public once as well. No secrets should be added to either Docker build context.
 
 After validation, update `src/team_builder/resources/images.json` with the released
 image digests, then build the installer with `uv build --wheel` and publish it with
@@ -52,7 +56,12 @@ docker build -f packaging/Dockerfile.buzz -t team-builder-buzz:local .image-buil
 docker build -f packaging/Dockerfile.hermes \
   --build-arg BUZZ_IMAGE=team-builder-buzz:local \
   -t team-builder-hermes:local .image-build/hermes
+docker build -f packaging/Dockerfile.harness \
+  --build-arg HARNESS=pi --build-arg BUZZ_IMAGE=team-builder-buzz:local \
+  -t team-builder-pi:local .image-build/harness
+# Repeat with HARNESS=codex / HARNESS=devin for those runtimes.
 BUZZ_IMAGE=team-builder-buzz:local HERMES_IMAGE=team-builder-hermes:local \
+  PI_IMAGE=team-builder-pi:local \
   python tests/integration/bootstrap_images.py
 ```
 
@@ -71,9 +80,16 @@ unknown hosts. `prepare_images.py` applies both patches and records their hashes
 New Buzz and Hermes images carry `io.team-builder.internal-relay=1`; the CLI
 checks this capability when separate client/internal URLs are requested. Previously
 published image digests do not gain this capability automatically.
-The Hermes patch in `src/team_builder/resources/patch_hermes.py` supplies verified
-message context to COA and enables owner messages in its office without mentions.
 Patches fail on incompatible upstream source instead of silently dropping behavior.
+
+Every agent runs upstream `buzz-acp` (built alongside `buzz` from the Buzz image)
+as its Buzz gateway. The Hermes image installs Hermes with `--extra acp` to
+provide the `hermes-acp` adapter; the pi and codex images install the pinned npm
+adapters `pi-acp@0.0.33` and `@agentclientprotocol/codex-acp@1.12.0` (the codex
+adapter carries the `@openai/codex` runtime, whose resolved version is recorded
+in `/usr/share/team-builder/codex-runtime.txt`); the devin image uses
+`devin acp`. COA's unmentioned owner-office messages come from a `rules.toml`
+subscription rendered into its bundle, not a source patch.
 
 ## MinIO dependency mirrors
 

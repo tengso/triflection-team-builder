@@ -1,6 +1,7 @@
 """Small Docker Engine client. Every mutation is restricted to this installation."""
 
 import json
+import re
 import time
 from urllib.parse import quote
 
@@ -38,7 +39,7 @@ class Docker:
         if self.inspect(name):
             self.call("POST", f"/containers/{quote(name, safe='')}/stop?t=20")
 
-    def restart(self, name):
+    def restart(self, name, python="/opt/hermes/.venv/bin/python"):
         observed = self.inspect(name)
         if not observed:
             raise ValueError("Agent container is missing")
@@ -48,12 +49,22 @@ class Docker:
         self.exec(
             observed["Id"],
             [
-                "/opt/hermes/.venv/bin/python",
+                python,
                 "-m",
                 "team_builder.worker_supervisor",
                 "restart",
             ],
         )
+
+    def pull(self, image):
+        result = self.client.request(
+            "POST",
+            "/v1.45/images/create",
+            params={"fromImage": image},
+            timeout=900,
+        )
+        if result.status_code not in (200, 201):
+            raise RuntimeError(f"Docker image pull failed (HTTP {result.status_code})")
 
     def ensure(self, name, spec, generation):
         observed = self.inspect(name)
@@ -66,6 +77,12 @@ class Docker:
             self.call("DELETE", f"/containers/{quote(name, safe='')}")
             observed = None
         if not observed:
+            image = spec["Image"]
+            missing = (
+                self.call("GET", "/images/" + quote(image, safe="") + "/json") is None
+            )
+            if missing and not re.fullmatch(r"(sha256:)?[0-9a-f]{12,64}", image):
+                self.pull(image)
             spec["Labels"] = {
                 **spec.get("Labels", {}),
                 "io.team-builder.project": self.project,

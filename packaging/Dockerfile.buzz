@@ -13,8 +13,8 @@ ENV SQLX_OFFLINE=true CARGO_BUILD_JOBS=3 CARGO_PROFILE_RELEASE_DEBUG=0 \
 RUN --mount=type=cache,target=/opt/cargo/registry \
     --mount=type=cache,target=/opt/cargo/git \
     --mount=type=cache,target=/build/target \
-    cargo build --release --locked -p buzz-cli --bin buzz -p buzz-relay --bin buzz-relay -p buzz-admin --bin buzz-admin \
-    && mkdir /binaries && cp target/release/buzz target/release/buzz-relay target/release/buzz-admin /binaries/
+    cargo build --release --locked -p buzz-cli --bin buzz -p buzz-relay --bin buzz-relay -p buzz-admin --bin buzz-admin -p buzz-acp --bin buzz-acp \
+    && mkdir /binaries && cp target/release/buzz target/release/buzz-relay target/release/buzz-admin target/release/buzz-acp /binaries/
 
 FROM ${UBUNTU_IMAGE}
 ARG SOURCE_REVISION
@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=compile /binaries/ /usr/local/bin/
 COPY LICENSE* /usr/share/licenses/buzz/
 COPY team-builder-source.json /usr/share/team-builder/buzz-source.json
-RUN buzz --help >/dev/null && buzz-admin --help >/dev/null \
+RUN buzz --help >/dev/null && buzz-admin --help >/dev/null && buzz-acp --help >/dev/null \
     && ! ldd /usr/local/bin/buzz-relay | grep 'not found'
 USER 1000:1000
 ENTRYPOINT ["/usr/local/bin/buzz-relay"]

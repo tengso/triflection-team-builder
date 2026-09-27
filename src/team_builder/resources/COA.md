@@ -117,4 +117,18 @@ mandatory; ordinary agents never receive it. App servers survive gateway-only
 configuration application when detached with log redirection.
 
 
-Host application operations: the local operator registers fixed application specifications and immutable releases. Use `configure_deployment_access` with agent, application, environment, and allowed to grant/revoke access after owner authorization. Scoped agents receive a deployments MCP connection. An `execute_deployment` operation queues an immutable plan; queued does not mean healthy. Report success only after the persistent job succeeds. Do not add Docker access or production secrets to agent containers.
+Host application operations: the local operator registers fixed application specifications and immutable releases. Use `configure_deployment_access` with agent, application, environment, and allowed to grant/revoke access after owner authorization. Scoped agents receive a deployments MCP connection (pi agents: an equivalent deployment CLI and skill). An `execute_deployment` operation queues an immutable plan; queued does not mean healthy. Report success only after the persistent job succeeds. Do not add Docker access or production secrets to agent containers.
+
+Agent harnesses: create_agent accepts an optional harness field. The default
+`hermes` keeps every feature below. `pi`, `codex`, and `devin` run that CLI
+inside the same isolated worker container through the upstream `buzz-acp`
+gateway (ACP). A devin agent requires harness_credential naming a Devin account
+key the owner stored with `team-builder credential NAME`; you never see the
+value. pi agents cannot be assigned MCP connections; they can receive deployment
+access, which they use through a bundled deployment CLI instead of MCP. No
+harness has per-command `/approve` prompts: every agent's tool calls run under
+ACP `bypass-permissions` inside the container, and every agent posts its own
+replies with the `buzz` CLI (`buzz messages send --reply-to`). Harness cannot be
+changed after creation: archive the agent and create a new one. Only ask the
+owner which harness to use when they mention one or ask for options; otherwise
+use hermes.

@@ -2,7 +2,6 @@
 
 import json
 import re
-import socket
 import sqlite3
 import threading
 import time
@@ -263,8 +262,17 @@ class Engine:
         return entries[-100:]
 
 
-def gateway(root, identifier, container):
-    home = root / "agents" / identifier / "home" / ".hermes"
+def state_home(root, identifier, agent=None):
+    base = root / "agents" / identifier / "home"
+    if agent is not None:
+        from .runtime import HARNESSES, harness_of
+
+        return base / HARNESSES[harness_of(agent)]["state"]
+    return base / ".team-builder"
+
+
+def gateway(root, identifier, container, agent=None):
+    home = state_home(root, identifier, agent)
     out = {
         "responsive": None,
         "state": "unknown",
@@ -288,38 +296,25 @@ def gateway(root, identifier, container):
         if started and updated < datetime.fromisoformat(started).timestamp():
             return out
         buzz = state.get("platforms", {}).get("buzz", {})
-        if buzz.get("writer_pid") != state.get("pid") or buzz.get(
-            "writer_start_time"
-        ) != state.get("start_time"):
-            return out
         if container.get("status") != "running":
             return out
         out["state"] = state.get("gateway_state", "unknown")
-        pid = int(state["pid"])
-        path = home / "state" / f"gateway.loop-tick.{pid}.sock"
-        if not path.resolve().is_relative_to(home.resolve()):
-            return out
-        with socket.socket(socket.AF_UNIX) as connection:
-            connection.settimeout(0.4)
-            connection.connect(str(path))
-            out["responsive"] = connection.recv(2) == b"1"
+        # buzz-acp writes gateway_state on every transition plus a heartbeat.
+        # A recently updated record with a connected Buzz session is responsive.
+        out["responsive"] = (
+            buzz.get("state") == "connected" and (time.time() - updated) < 90
+        )
         out["stale"] = not out["responsive"]
         if out["responsive"]:
-            out["buzz"] = (
-                state.get("platforms", {}).get("buzz", {}).get("state", "unknown")
-            )
-            active = state.get("active_agents")
-            out["active_tasks"] = (
-                active if isinstance(active, int) and active >= 0 else None
-            )
+            out["buzz"] = buzz.get("state", "unknown")
     except (OSError, ValueError, KeyError, TypeError):
         if container.get("status") == "running":
             out["responsive"] = False
     return out
 
 
-def agent_activity(root, identifier):
-    home = root / "agents" / identifier / "home" / ".hermes"
+def agent_activity(root, identifier, agent=None):
+    home = state_home(root, identifier, agent)
     path = home / "state.db"
     if (
         not home.resolve().is_relative_to(root / "agents" / identifier)
@@ -483,6 +478,7 @@ class Observer:
                 "instructions",
                 "channel_ids",
                 "github_credential",
+                "harness",
             ),
             "channel": ("id", "uuid", "name", "description", "visibility", "state"),
             "project": (
@@ -503,9 +499,10 @@ class Observer:
         out["collected_at"] = time.time()
         if kind == "agent":
             name = self.config["project"] + "-agent-" + identifier
+            out["harness"] = out["harness"] or "hermes"
             out["container"] = self.container(name)
-            out["gateway"] = gateway(self.root, identifier, out["container"])
-            out["activity"] = agent_activity(self.root, identifier)
+            out["gateway"] = gateway(self.root, identifier, out["container"], item)
+            out["activity"] = agent_activity(self.root, identifier, item)
             out["owner"] = (
                 self.config["owner"]
                 if identifier == "coa"

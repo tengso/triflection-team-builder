@@ -85,14 +85,13 @@ def test_separate_urls_preserve_public_metadata_and_agent_connectivity(manager):
     assert relay["environment"]["RELAY_URL"] == "ws://127.0.0.1:3400"
     assert relay["environment"]["BUZZ_MEDIA_BASE_URL"] == "http://127.0.0.1:3400/media"
     assert relay["environment"]["BUZZ_INTERNAL_RELAY_URL"] == "http://relay:3000"
-    worker_config, env, _ = render(config, secrets, manager.resource("coa", "agent"))
-    assert (
-        worker_config["gateway"]["platforms"]["buzz"]["extra"]["relay_url"]
-        == "http://relay:3000"
+    _, harness_config_doc, env, _ = render(
+        config, secrets, manager.resource("coa", "agent")
     )
+    assert harness_config_doc["relay_url"] == "http://relay:3000"
     assert env["BUZZ_RELAY_URL"] == "http://relay:3000"
     del config["internal_url"]
-    worker_config, env, _ = render(config, secrets, manager.resource("coa", "agent"))
+    _, _, env, _ = render(config, secrets, manager.resource("coa", "agent"))
     assert env["BUZZ_RELAY_URL"] == config["advertised_url"]
     assert (
         "BUZZ_INTERNAL_RELAY_URL"

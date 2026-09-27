@@ -153,7 +153,9 @@ def exercise(owner_secret):
         deployment("propose", plan_id=plan["plan_id"], source_event_id=source["id"])
         == proposal
     )
-    assert not m.deployments.db.list("job")
+    assert not [
+        j for j in m.deployments.db.list("job") if j["application"] == "acceptance"
+    ]
     execute([{"action": "archive_agent", "id": "release-operator"}])
     print(
         "PASS: assigned agent publishes a frozen deployment proposal in a private channel without COA; retries reuse event"

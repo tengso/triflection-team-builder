@@ -55,7 +55,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Reject existing release tags
         run: |
-          for name in buzz hermes; do
+          for name in buzz hermes pi codex devin; do
             if docker buildx imagetools inspect "$IMAGE_ROOT/$name:$VERSION" >/dev/null 2>&1; then
               echo "Image tag already exists: $name:$VERSION. Use a new version."
               exit 1
@@ -91,27 +91,90 @@ jobs:
           cache-to: type=gha,mode=max,scope=hermes,ignore-error=true,timeout=2m
           provenance: mode=max
           sbom: true
+      - name: Build and publish pi runtime
+        id: pi
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .image-build/harness
+          file: packaging/Dockerfile.harness
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_ROOT }}/pi:build-${{ github.run_id }}-${{ github.run_attempt }}
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+            HARNESS=pi
+            BUZZ_IMAGE=${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
+          cache-from: type=gha,scope=pi
+          cache-to: type=gha,mode=max,scope=pi,ignore-error=true,timeout=2m
+          provenance: mode=max
+          sbom: true
+      - name: Build and publish codex runtime
+        id: codex
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .image-build/harness
+          file: packaging/Dockerfile.harness
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_ROOT }}/codex:build-${{ github.run_id }}-${{ github.run_attempt }}
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+            HARNESS=codex
+            BUZZ_IMAGE=${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
+          cache-from: type=gha,scope=codex
+          cache-to: type=gha,mode=max,scope=codex,ignore-error=true,timeout=2m
+          provenance: mode=max
+          sbom: true
+      - name: Build and publish devin runtime
+        id: devin
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .image-build/harness
+          file: packaging/Dockerfile.harness
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_ROOT }}/devin:build-${{ github.run_id }}-${{ github.run_attempt }}
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+            HARNESS=devin
+            BUZZ_IMAGE=${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
+          cache-from: type=gha,scope=devin
+          cache-to: type=gha,mode=max,scope=devin,ignore-error=true,timeout=2m
+          provenance: mode=max
+          sbom: true
       - name: Verify published images and bootstrap
         env:
           EXERCISE_MANAGEMENT: "1"
           BUZZ_IMAGE: ${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
           HERMES_IMAGE: ${{ env.IMAGE_ROOT }}/hermes@${{ steps.hermes.outputs.digest }}
+          PI_IMAGE: ${{ env.IMAGE_ROOT }}/pi@${{ steps.pi.outputs.digest }}
+          CODEX_IMAGE: ${{ env.IMAGE_ROOT }}/codex@${{ steps.codex.outputs.digest }}
+          DEVIN_IMAGE: ${{ env.IMAGE_ROOT }}/devin@${{ steps.devin.outputs.digest }}
         run: python tests/integration/bootstrap_images.py
       - name: Promote verified images to release tags
         env:
           BUZZ_IMAGE: ${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
           HERMES_IMAGE: ${{ env.IMAGE_ROOT }}/hermes@${{ steps.hermes.outputs.digest }}
+          PI_IMAGE: ${{ env.IMAGE_ROOT }}/pi@${{ steps.pi.outputs.digest }}
+          CODEX_IMAGE: ${{ env.IMAGE_ROOT }}/codex@${{ steps.codex.outputs.digest }}
+          DEVIN_IMAGE: ${{ env.IMAGE_ROOT }}/devin@${{ steps.devin.outputs.digest }}
         run: |
           docker buildx imagetools create --tag "$IMAGE_ROOT/buzz:$VERSION" "$BUZZ_IMAGE"
           docker buildx imagetools create --tag "$IMAGE_ROOT/hermes:$VERSION" "$HERMES_IMAGE"
+          docker buildx imagetools create --tag "$IMAGE_ROOT/pi:$VERSION" "$PI_IMAGE"
+          docker buildx imagetools create --tag "$IMAGE_ROOT/codex:$VERSION" "$CODEX_IMAGE"
+          docker buildx imagetools create --tag "$IMAGE_ROOT/devin:$VERSION" "$DEVIN_IMAGE"
       - name: Write immutable image manifest
         env:
           BUZZ_IMAGE: ${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
           HERMES_IMAGE: ${{ env.IMAGE_ROOT }}/hermes@${{ steps.hermes.outputs.digest }}
+          PI_IMAGE: ${{ env.IMAGE_ROOT }}/pi@${{ steps.pi.outputs.digest }}
+          CODEX_IMAGE: ${{ env.IMAGE_ROOT }}/codex@${{ steps.codex.outputs.digest }}
+          DEVIN_IMAGE: ${{ env.IMAGE_ROOT }}/devin@${{ steps.devin.outputs.digest }}
         run: |
           python - <<'PY'
           import json, os
-          manifest = {k.lower(): os.environ[k] for k in ('VERSION', 'BUZZ_IMAGE', 'HERMES_IMAGE', 'GITHUB_SHA')}
+          manifest = {k.lower(): os.environ[k] for k in ('VERSION', 'BUZZ_IMAGE', 'HERMES_IMAGE', 'PI_IMAGE', 'CODEX_IMAGE', 'DEVIN_IMAGE', 'GITHUB_SHA')}
           with open('images.json', 'w') as f:
               json.dump(manifest, f, indent=2)
               f.write('\n')

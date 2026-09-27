@@ -160,7 +160,7 @@ def test_scoped_agent_and_operator_credentials(manager, monkeypatch):
         )
     agent = manager.resource("coa", "agent")
     agent["deployments"] = ["portal/production"]
-    config, _, _ = render(manager.config, manager.secrets, agent)
+    config, _, _, _ = render(manager.config, manager.secrets, agent)
     assert config["mcp_servers"]["deployments"]["env"]["DEPLOYMENT_TOKEN"] == token(
         manager.secrets, "coa"
     )
@@ -451,5 +451,62 @@ def test_verified_mention_approval_remains_bound_to_exact_proposal(manager):
 def test_deployment_tools_have_direct_schemas(manager):
     agent = manager.resource("coa", "agent")
     agent["deployments"] = ["portal/production"]
-    config, _, _ = render(manager.config, manager.secrets, agent)
+    config, *_ = render(manager.config, manager.secrets, agent)
     assert config["tools"]["tool_search"]["enabled"] == "off"
+
+
+def test_pi_agent_gets_deployment_cli_instead_of_mcp(manager, monkeypatch):
+    monkeypatch.setattr("os.chown", lambda *args: None)
+    monkeypatch.setattr(manager, "launch", manager.__class__.launch.__get__(manager))
+    manager.config["images"] = {"pi": "pi-image"}
+    manager.execute(
+        message(manager, "pi-deploy-1"),
+        [
+            {"action": "create_channel", "id": "ops", "name": "Operations"},
+            {
+                "action": "create_agent",
+                "id": "oppo",
+                "name": "Oppo",
+                "instructions": "Operate portal",
+                "channels": ["ops"],
+                "harness": "pi",
+            },
+        ],
+    )
+    d = setup(manager)
+    manager.apply(
+        {
+            "action": "configure_deployment_access",
+            "agent": "oppo",
+            "application": "portal",
+        }
+    )
+    managed = manager.root / "agents/oppo/managed"
+    harness = json.loads((managed / "harness.json").read_text())
+    env = json.loads((managed / "env.json").read_text())
+    skills = json.loads((managed / "skills.json").read_text())
+    assert harness["mcp_servers"] == {}
+    assert not (managed / "deployment_mcp.py").exists()
+    assert (managed / "deployment-token").read_text() == token(manager.secrets, "oppo")
+    assert (managed / "deployment-token").stat().st_mode & 0o077 == 0
+    assert "DEPLOYMENT_TOKEN" not in env
+    assert env["DEPLOYMENT_TOKEN_FILE"] == "/run/team/deployment-token"
+    assert env["DEPLOYMENT_AGENT"] == "oppo"
+    assert "import httpx" in (managed / "deployment_cli.py").read_text()
+    assert "portal/production" in skills["team-deployments"]
+    assert "deployment_cli.py" in (managed / "SOUL.md").read_text()
+    d.grant("oppo", "portal", allowed=False)
+    skills = json.loads((managed / "skills.json").read_text())
+    assert "team-deployments" not in skills
+    for name in ("deployment_cli.py", "deployment-token", "deployment_mcp.py"):
+        assert not (managed / name).exists()
+
+
+def test_deployment_skill_id_is_reserved(manager):
+    from team_builder.agent_config import add_catalog
+
+    with pytest.raises(ValueError, match="reserved"):
+        add_catalog(
+            manager,
+            {"id": "team-deployments", "kind": "skill", "name": "x", "content": "y"},
+        )

@@ -4,6 +4,9 @@ A small Linux bootstrapper for a conversational Buzz team. It creates the Buzz
 services, **Chief of Agents (COA)**, and **Office Of COA**. Tell COA what team you
 need; there is no team blueprint to maintain.
 
+New here? Start with the [User's Guide](docs/user-guide.md), which walks through
+concepts, setup, daily operation, and a worked financial-research team.
+
 ## Install and initialize
 
 Requirements: Linux x86-64, Python 3.12+ with pip and venv support, and Docker Engine
@@ -15,7 +18,7 @@ image IDs. It does not need Rust, a Hermes checkout, or a local Docker build.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.6.0/buzz_team_builder-0.6.0-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.7.0/buzz_team_builder-0.7.0-py3-none-any.whl'
 team-builder init \
   --bind 0.0.0.0 \
   --port 3100
@@ -44,8 +47,12 @@ Subsequent agents are owned by COA, not directly by the human owner. The provide
 credential is stored privately and shared with each agent runtime.
 
 To use your own images, pass `--buzz-image` and `--runtime-image`. For an unbundled
-Hermes base with the native Buzz adapter and `buzz` CLI, use `--hermes-image`
-instead; this explicitly enables the local compatibility build. Existing
+Hermes base with the ACP adapter and `buzz` CLI, use `--hermes-image`
+instead; this explicitly enables the local compatibility build. Harness images
+for `pi`, `codex`, and `devin` agents can be recorded at init time with
+`--pi-image`, `--codex-image`, and `--devin-image` (references are stored
+without pulling); add `--pull-harnesses pi,codex,devin` to pull and verify them
+up front. Existing
 installations keep their saved images when resumed. Image source pins, publishing,
 and release validation are documented in [packaging/README.md](packaging/README.md).
 
@@ -227,17 +234,74 @@ before its result is saved, the upstream API cannot resolve that ambiguity by
 request ID: management reports an unknown outcome rather than minting duplicates.
 Inspect Buzz before authorizing another invite ID.
 
+## Agent harnesses
+
+Every agent — COA included — runs upstream `buzz-acp` as its Buzz gateway,
+driving an ACP agent inside the same isolated worker container: `hermes-acp` for
+Hermes, `pi-acp` for `pi`, `codex-acp` for `codex` (the adapter ships the Codex
+runtime), and `devin acp` for `devin`. The gateway dispatches a turn on @mention
+(a `p` tag), keeps one session per channel, and runs tool calls under ACP
+`bypass-permissions` — the container is the isolation boundary, and there is no
+per-command approval prompt. Agents post their own replies with
+`buzz messages send --reply-to`. COA additionally answers owner messages in the
+office without a mention (a buzz-acp rules file).
+
+Ordinary worker agents can run on a harness other than Hermes: `pi`
+(`ghcr.io/tengso/triflection-team-builder/pi`), `codex`
+(`ghcr.io/tengso/triflection-team-builder/codex`, the OpenAI Codex CLI), or
+`devin` (`ghcr.io/tengso/triflection-team-builder/devin`, the Devin CLI). COA
+itself always runs on Hermes, and an agent's harness cannot be changed after
+creation — archive the agent and create a new one.
+
+Ask COA for the harness by name, for example “Create a code reviewer in Platform
+on the codex harness”. pi and codex agents use the shared provider and model
+(OpenRouter, OpenAI, or a custom base URL; codex talks to the provider's
+`/responses` endpoint, so a custom base URL must serve the OpenAI Responses API,
+not only chat completions); devin agents use a Devin account and
+honour only the model name. For devin, first store the account key on the host
+with `team-builder credential devin-account`, then ask COA for a devin agent
+with `harness_credential devin-account` — the key value never reaches chat or
+the dashboard.
+
+Harness images are pulled lazily by the manager on first use, or explicitly with
+`team-builder init --pull-harnesses pi,codex,devin` (or the `--pi-image`,
+`--codex-image`, `--devin-image` flags) and
+`team-builder upgrade --harness NAME --image REF`.
+
+Provider mapping differs per harness: Hermes reads `config.yaml` providers, pi
+reads `models.json` (OpenRouter or a custom OpenAI-compatible chat-completions
+URL — no direct OpenAI, no MCP; deployment access is delivered as a bundled
+CLI and managed skill, see [docs/deployments.md](docs/deployments.md)), codex reads `config.toml` and speaks the
+Responses wire API (a custom base URL must serve `/responses`, not only chat
+completions), and devin honours only the model name. Mission Control shows a
+Harness column and the same gateway/Buzz health for every harness, sourced from
+the worker-maintained `gateway_state.json` (connected/reconnecting) with turn
+start and delivery records as activity.
+
 ## Upgrade an existing installation
 
 Install the new wheel in the VM's virtual environment, then run `team-builder upgrade`.
-When managed instructions, configuration, or operation schemas change, workers refresh
-Hermes' saved system prompts and tool lists for continuing sessions. Conversation
-history is preserved; unchanged restarts retain the cached prompts.
+When managed instructions, configuration, or operation schemas change, updated
+bundles take effect on each agent's next gateway restart. After a restart the
+buzz-acp gateway opens a fresh agent session and feeds it recent channel
+history; workspaces, skills and Buzz conversations are preserved.
+
+**Upgrading to 0.7.0 from 0.6.x** moves every agent from the Hermes-native Buzz
+adapter to `buzz-acp`. Run a full `team-builder upgrade` (not `--manager-only`,
+which is refused while workers still run a pre-0.7.0 runtime): all agent
+containers are recreated on the new runtime, which interrupts detached app
+servers once. Earlier Hermes gateway sessions do not carry over; agents continue
+from the visible channel history. Per-command `/approve` prompts no longer exist.
+The pi, codex and devin images published with the release are recorded for lazy
+use on first agent start.
 The command updates the manager and running agents, preserving identities, workspaces,
 channels, and infrastructure volumes. It saves the previous Compose/config files under
 `STATE/upgrades/`. Use `--runtime-image` for an explicit runtime image; `init` continues
 to resume with saved image pins. An interrupted upgrade can be retried with the same
 image. If readiness fails, inspect manager logs before retrying.
+`upgrade --harness NAME --image REF` instead installs a harness image (`pi`,
+`codex`, or `devin`) for agents on that runtime; it records the resolved image
+in `config.json` and restarts the manager so running agents pick it up.
 
 `upgrade` does not replace the Buzz relay image or change community addresses.
 The new split-URL bootstrap is available for fresh installations; automatic
@@ -245,13 +309,9 @@ migration of an existing community to a different client URL is not implemented.
 
 ## Operation and recovery
 
-When an agent requests command approval in Buzz, the community owner can reply
-directly to that prompt with `/approve` or `/deny`. If the app attaches replies to
-the thread root, use the prompt's explicit `/approve REQUEST_ID` command in the
-same channel. `/approve REQUEST_ID session` or `always` are accepted only when the
-security check permits that scope. Expired, already answered, ambiguous, and
-pre-restart prompts cannot authorize a newer command; ask the agent to retry for
-a fresh prompt. No command-security checks are disabled by this routing support.
+Owner approval is only used for frozen change proposals (team or deployment
+plans): reply `approve` directly to the proposal message. Agents run their tool
+calls without per-command prompts, so no `/approve` or `/deny` command exists.
 
 State defaults to `~/.local/state/team-builder/default`. Use a different
 `--state-dir` and port for each community. Run the same `init` command again to
@@ -302,7 +362,8 @@ ruff format --check src tests
 ```
 
 Unit tests cover signatures, access boundaries, proposals, retries, registration,
-memberships, and lifecycle operations. Linux integration instructions and recorded
+memberships, lifecycle operations, harness configuration, and the buzz-acp
+gateway state machine. Linux integration instructions and recorded
 validation results are in `docs/validation.md`.
 
 Local `vm-repair/` artifacts are retained as historical recovery material and
@@ -362,11 +423,12 @@ installation. Keep the dashboard on a trusted private network. It has no termina
 credential editor, transcript viewer, or automatic recovery.
 
 In **Agents**, open an agent and choose **Restart agent…**. Owner confirmation
-restarts only the Hermes gateway, keeping the container and detached app servers
+restarts only the agent's gateway (buzz-acp plus the harness adapter), keeping
+the container and detached app servers
 running. Active agent turns, unsaved in-memory work, and attached terminal/PTY
 sessions can be interrupted. Identity, configuration, history, and workspace files
-are retained. Gateway restart bypasses Hermes' shutdown cleanup by terminating only
-the gateway PID; it does not signal its process group or other app processes.
+are retained. Gateway restart terminates only the gateway process group; it does
+not signal other app processes.
 
 For app servers that must survive, launch them detached with their own log files:
 

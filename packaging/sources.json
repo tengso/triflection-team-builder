@@ -6,5 +6,27 @@
   "hermes": {
     "repository": "NousResearch/hermes-agent",
     "revision": "d0df324862cb2244a40789a5ca45392165f1b950"
+  },
+  "node": {
+    "version": "22.23.2",
+    "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-x64.tar.xz",
+    "sha256": "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307"
+  },
+  "pi": {
+    "version": "0.85.1",
+    "package": "@earendil-works/pi-coding-agent"
+  },
+  "pi_acp": {
+    "version": "0.0.33",
+    "package": "pi-acp"
+  },
+  "codex_acp": {
+    "version": "1.12.0",
+    "package": "@agentclientprotocol/codex-acp"
+  },
+  "devin": {
+    "version": "3000.10.21",
+    "url": "https://static.devin.ai/cli/3000.10.21/devin-3000.10.21-x86_64-unknown-linux.tar.gz",
+    "sha256": "7cac6f5739ba3a3e5542f3b7fa07ed902d6dfb96ca22e4c63ae84c03bb7db47c"
   }
 }

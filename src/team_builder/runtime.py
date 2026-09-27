@@ -1,6 +1,7 @@
 import fcntl
 import hashlib
 import ipaddress
+import json
 import os
 from importlib.resources import files
 from urllib.parse import urlsplit
@@ -11,80 +12,155 @@ from .docker import generation
 from .nostr import wire
 from .storage import private_write
 
+HARNESSES = {
+    "hermes": {
+        "python": "/opt/hermes/.venv/bin/python",
+        "worker": "/opt/hermes/.venv/bin/team-builder-worker",
+        "home": "/home/hermes",
+        "state": ".team-builder",
+        "acp": ["/opt/hermes/.venv/bin/hermes-acp"],
+    },
+    "pi": {
+        "python": "/opt/team-builder/.venv/bin/python",
+        "worker": "/opt/team-builder/.venv/bin/team-builder-worker",
+        "home": "/home/agent",
+        "state": ".team-builder",
+        "acp": ["pi-acp"],
+    },
+    "codex": {
+        "python": "/opt/team-builder/.venv/bin/python",
+        "worker": "/opt/team-builder/.venv/bin/team-builder-worker",
+        "home": "/home/agent",
+        "state": ".team-builder",
+        "acp": ["codex-acp"],
+    },
+    "devin": {
+        "python": "/opt/team-builder/.venv/bin/python",
+        "worker": "/opt/team-builder/.venv/bin/team-builder-worker",
+        "home": "/home/agent",
+        "state": ".team-builder",
+        "acp": ["devin", "acp"],
+    },
+}
+
+
+DEPLOYMENT_SKILL = "team-deployments"
+
+
+def harness_of(agent):
+    return agent.get("harness", "hermes")
+
+
+def python_for(agent):
+    return HARNESSES[harness_of(agent)]["python"]
+
+
+def home_dir(root, agent):
+    return (
+        root / "agents" / agent["id"] / "home" / HARNESSES[harness_of(agent)]["state"]
+    )
+
+
+def image_for(config, agent):
+    harness = harness_of(agent)
+    if harness == "hermes":
+        return config["runtime_image"]
+    image = config.get("images", {}).get(harness)
+    if not image:
+        raise ValueError(
+            f"{harness} runtime image is not installed; run team-builder upgrade --harness {harness} --image IMAGE"
+        )
+    return image
+
 
 def render(config, secrets, agent):
+    harness = harness_of(agent)
     coa = agent["id"] == "coa"
-    channel_ids = agent["channel_ids"]
-    extra = {
-        "relay_url": config.get("internal_url") or config["advertised_url"],
-        "channels": channel_ids,
-        "home_channel": channel_ids[0] if channel_ids else "",
-        "cli_path": "/usr/local/bin/buzz",
-        "require_mention": True,
-        "allow_all_users": True,
-        "reply_in_thread": True,
-        "allow_admin_from": [config["owner"]],
-        "group_allow_admin_from": [config["owner"]],
-    }
-    document = {
-        "model": {
-            "provider": "openai-api"
-            if config["provider"] == "openai"
-            else config["provider"],
-            "default": agent.get("model") or config["model"],
-        },
-        "agent": {"max_turns": 30},
-        "terminal": {"backend": "local", "cwd": "/work"},
-        "gateway": {
-            "max_concurrent_sessions": 1,
-            "platforms": {"buzz": {"enabled": True, "extra": extra}},
-        },
-        "security": {"redact_secrets": True},
-        "display": {
-            "platforms": {
-                "buzz": {"interim_assistant_messages": False, "tool_progress": "off"}
+    key_env = (
+        "OPENROUTER_API_KEY" if config["provider"] == "openrouter" else "OPENAI_API_KEY"
+    )
+    document = {"mcp_servers": {}}
+    if harness == "hermes":
+        document.update(
+            {
+                "model": {
+                    "provider": "openai-api"
+                    if config["provider"] == "openai"
+                    else config["provider"],
+                    "default": agent.get("model") or config["model"],
+                },
+                "agent": {"max_turns": 30},
+                "terminal": {"backend": "local", "cwd": "/work"},
+                "security": {"redact_secrets": True},
+                "platform_toolsets": {
+                    "acp": list(
+                        agent.get(
+                            "tools",
+                            [
+                                "terminal",
+                                "file",
+                                "skills",
+                                "memory",
+                                "todo",
+                                "session_search",
+                            ],
+                        )
+                    )
+                    + (
+                        ["mcp"]
+                        if coa or agent.get("mcp") or agent.get("deployments")
+                        else ["no_mcp"]
+                    )
+                },
             }
-        },
-        "mcp_servers": {},
-        "platform_toolsets": {
-            "buzz": ["terminal", "file", "skills", "memory", "todo", "session_search"]
-            + (["mcp"] if coa else ["no_mcp"])
-        },
-    }
-    document["platform_toolsets"]["buzz"] = list(
-        agent.get(
-            "tools", ["terminal", "file", "skills", "memory", "todo", "session_search"]
         )
-    ) + (["mcp"] if coa or agent.get("mcp") or agent.get("deployments") else ["no_mcp"])
-    if agent.get("deployments"):
-        # Keep typed deployment schemas visible instead of routing through the
-        # generic tool_call(name, arguments) bridge, which can lose arguments.
-        document["tools"] = {"tool_search": {"enabled": "off"}}
-    if config.get("base_url"):
-        document["model"]["provider"] = "custom:team"
-        document["providers"] = {
-            "team": {
-                "enabled": True,
-                "api": config["base_url"],
-                "key_env": "OPENAI_API_KEY",
-                "transport": "chat_completions",
-                "default_model": config["model"],
+        if agent.get("deployments"):
+            # Keep typed deployment schemas visible instead of routing through the
+            # generic tool_call(name, arguments) bridge, which can lose arguments.
+            document["tools"] = {"tool_search": {"enabled": "off"}}
+        if config.get("base_url"):
+            document["model"]["provider"] = "custom:team"
+            document["providers"] = {
+                "team": {
+                    "enabled": True,
+                    "api": config["base_url"],
+                    "key_env": "OPENAI_API_KEY",
+                    "transport": "chat_completions",
+                    "default_model": config["model"],
+                }
             }
-        }
+    harness_document = {
+        "harness": harness,
+        "agent_id": agent["id"],
+        "agent_name": agent["name"],
+        "model": agent.get("model") or config["model"],
+        "provider": config["provider"],
+        "base_url": config.get("base_url"),
+        "key_env": key_env,
+        "relay_url": config.get("internal_url") or config["advertised_url"],
+        "channels": agent["channel_ids"],
+        "owner": config["owner"],
+        "mcp_servers": {},
+    }
     env = {
         "TEAM_BUILDER_OWNER": config["owner"],
         "BUZZ_PRIVATE_KEY": agent["secret"],
         "BUZZ_AUTH_TAG": wire(agent["auth_tag"]).decode(),
         "BUZZ_RELAY_URL": config.get("internal_url") or config["advertised_url"],
-        "BUZZ_ALLOW_ALL_USERS": "true",
-        "OPENROUTER_API_KEY"
-        if config["provider"] == "openrouter"
-        else "OPENAI_API_KEY": secrets["provider_key"],
+        "BUZZ_ACP_RESPOND_TO": "anyone",
+        "BUZZ_ACP_PERMISSION_MODE": "bypass-permissions",
+        "BUZZ_ACP_SESSION_POLICY": "channel",
+        **({key_env: secrets["provider_key"]} if harness != "devin" else {}),
     }
+    if harness == "codex":
+        env["CODEX_API_KEY"] = secrets["provider_key"]
+        env["DEFAULT_AUTH_REQUEST"] = '{"methodId": "api-key"}'
+        env["NO_BROWSER"] = "1"
+        env["INITIAL_AGENT_MODE"] = "agent-full-access"
+    if harness == "hermes":
+        env["HERMES_ACP_SKIP_CONFIGURED_MCP"] = "0"
     if coa:
-        env.update(
-            TEAM_BUILDER_OWNER=config["owner"], TEAM_BUILDER_OFFICE=config["office"]
-        )
+        env["TEAM_BUILDER_OFFICE"] = config["office"]
         document["mcp_servers"] = {
             "team": {
                 "command": "/opt/hermes/.venv/bin/python",
@@ -104,26 +180,49 @@ def render(config, secrets, agent):
         if agent.get("instructions"):
             soul += "\n\nOwner-configured instructions:\n" + agent["instructions"]
     else:
-        soul = f"You are {agent['name']}, an agent in a Buzz community.\n\n{agent['instructions']}\n\nWork in your assigned channels and reply in the request thread. Team changes must be proposed to Chief of Agents and approved by the human owner."
+        soul = _worker_soul(agent)
+    if harness != "hermes":
+        document = {}
+    return _finish(config, secrets, agent, document, harness_document, env, soul)
+
+
+def _worker_soul(agent):
+    return f"You are {agent['name']}, an agent in a Buzz community.\n\n{agent['instructions']}\n\nWork in your assigned channels and reply in the request thread. Team changes must be proposed to Chief of Agents and approved by the human owner."
+
+
+def _finish(config, secrets, agent, document, harness_document, env, soul):
+    harness = harness_of(agent)
+    mcp_servers = (
+        document["mcp_servers"]
+        if harness == "hermes"
+        else harness_document["mcp_servers"]
+    )
     if agent.get("deployments"):
         from .deployments import token
 
-        document["mcp_servers"]["deployments"] = {
-            "command": "/opt/hermes/.venv/bin/python",
-            "args": ["/run/team/deployment_mcp.py"],
-            "env": {
-                "DEPLOYMENT_AGENT": agent["id"],
-                "DEPLOYMENT_TOKEN": token(secrets, agent["id"]),
-            },
-        }
+        if harness == "pi":
+            # pi has no MCP; the bundled CLI calls the same manager endpoint.
+            env["DEPLOYMENT_AGENT"] = agent["id"]
+            env["DEPLOYMENT_TOKEN_FILE"] = "/run/team/deployment-token"
+            tools = "the deployment CLI (python /run/team/deployment_cli.py, documented in the team-managed-team-deployments skill; the tool names below map to its commands)"
+        else:
+            mcp_servers["deployments"] = {
+                "command": python_for(agent),
+                "args": ["/run/team/deployment_mcp.py"],
+                "env": {
+                    "DEPLOYMENT_AGENT": agent["id"],
+                    "DEPLOYMENT_TOKEN": token(secrets, agent["id"]),
+                },
+            }
+            tools = "the deployments MCP tools"
         soul += (
-            "\n\nProduction operations: use the deployments MCP tools for these application/environment assignments: "
+            f"\n\nProduction operations: use {tools} for these application/environment assignments: "
             + ", ".join(agent["deployments"])
             + ". Inspect release automation first. An enabled operator release policy authorizes the manager to deploy, verify UAT and promote automatically. In that mode, monitor the automatic run and investigate technical failures without requesting routine owner approval; use retry_automatic_release only after fixing the cause. You cannot define policy or certify UAT by assertion. Ask the owner in plain language only for missing credentials or decisions outside policy. Without an enabled policy, execute only a specific signed owner instruction or owner-approved frozen proposal. Queueing is not success: poll the operation until terminal. Production runs on the host separately from this workspace. Never use your terminal to deploy production, change databases, or acquire Docker access. Releases must first be registered by the local operator or trusted CI importer. Use list_environment_profiles and check_deployment_preflight before planning. For configuration repair, use plan_environment_configuration with an existing profile and release for one owner-approved combined deployment. Never request secret values in chat. Missing named credentials require the local operator; configuration selection and preflight do not require COA. TCP checks establish reachability only, not database authorization or schema correctness."
         )
     if agent.get("soul"):
         soul += "\n\nPersonality and communication:\n" + agent["soul"]
-    document["mcp_servers"].update(agent.get("resolved_mcp", {}))
+    mcp_servers.update(agent.get("resolved_mcp", {}))
     if agent.get("github_credential"):
         env.update(
             GITHUB_TOKEN_FILE="/run/team/github-token",
@@ -132,7 +231,9 @@ def render(config, secrets, agent):
             GIT_CONFIG_KEY_0="credential.https://github.com.helper",
             GIT_CONFIG_VALUE_0="",
             GIT_CONFIG_KEY_1="credential.https://github.com.helper",
-            GIT_CONFIG_VALUE_1="!/opt/hermes/.venv/bin/python -m team_builder.github_access",
+            GIT_CONFIG_VALUE_1="!"
+            + python_for(agent)
+            + " -m team_builder.github_access",
         )
         soul += (
             "\n\nGitHub access is provisioned as named credential "
@@ -153,7 +254,28 @@ def render(config, secrets, agent):
         "be interrupted. Check existing listeners before starting another instance. "
         "Container restart, stop, or upgrade still stops all processes."
     )
-    return document, env, soul
+    soul += (
+        "\n\nDelivery: your final assistant text is NOT shown to anyone. Every reply "
+        "must be posted with the buzz CLI, replying to the triggering message: "
+        "printf '%s\\n' \"<reply>\" | buzz messages send --channel <channel uuid> "
+        "--reply-to <Event ID from the buzz-event block> --content -. Post exactly "
+        "one reply per request unless asked for more; if a task fails, post the "
+        "failure the same way. Tool calls are auto-approved inside your isolated "
+        "container, so act carefully and never run destructive commands without an "
+        "explicit owner instruction."
+    )
+    return document, harness_document, env, soul
+
+
+def _coa_rules(config):
+    return (
+        '[[rules]]\nname = "mentions"\nchannels = "all"\nkinds = [9]\n'
+        "require_mention = true\n\n"
+        '[[rules]]\nname = "office-owner"\n'
+        f'channels = ["{config["office"]}"]\nkinds = [9]\n'
+        "require_mention = false\n"
+        f"filter = 'author == \"{config['owner']}\"'\n"
+    )
 
 
 def write_github_token(root, agent):
@@ -198,8 +320,6 @@ def _write_agent_files(root, config, secrets, agent):
                 raise ValueError("Unknown MCP assignment")
             server = {"url": entry["url"], "tools": {"include": entry["tools"]}}
             if entry.get("credential"):
-                import json
-
                 key = json.loads(
                     (root / "credentials" / (entry["credential"] + ".json")).read_text()
                 )["api_key"]
@@ -222,17 +342,35 @@ def _write_agent_files(root, config, secrets, agent):
             )
     finally:
         registry.db.close()
-    document, env, soul = render(config, secrets, {**agent, "resolved_mcp": resolved})
+    document, harness_document, env, soul = render(
+        config, secrets, {**agent, "resolved_mcp": resolved}
+    )
     for path in (directory, managed, home, work):
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chown(path, 10000, 10000)
-    if agent.get("deployments"):
+    cli_agent = bool(agent.get("deployments")) and harness_of(agent) == "pi"
+    if agent.get("deployments") and not cli_agent:
         private_write(
             managed / "deployment_mcp.py",
             files("team_builder").joinpath("resources/deployment_mcp.py").read_bytes(),
         )
     else:
         (managed / "deployment_mcp.py").unlink(missing_ok=True)
+    if cli_agent:
+        from .agent_deployments import skill
+        from .deployments import token
+
+        private_write(
+            managed / "deployment_cli.py",
+            files("team_builder").joinpath("agent_deployments.py").read_bytes(),
+        )
+        private_write(
+            managed / "deployment-token", token(secrets, agent["id"]).encode()
+        )
+        skills[DEPLOYMENT_SKILL] = skill(agent["deployments"])
+    else:
+        (managed / "deployment_cli.py").unlink(missing_ok=True)
+        (managed / "deployment-token").unlink(missing_ok=True)
     if agent["id"] == "coa":
         # Ship the current typed MCP facade in the read-only managed bundle so
         # manager-only upgrades can expose new tools without replacing workers.
@@ -257,6 +395,24 @@ def _write_agent_files(root, config, secrets, agent):
     from .proxy import environment as proxy_environment
 
     env.update(proxy_environment(root, config))
+    harness = harness_of(agent)
+    names = [
+        "config.yaml",
+        "env.json",
+        "SOUL.md",
+        "skills.json",
+        "revision.json",
+        "harness.json",
+    ]
+    if harness == "devin":
+        credential = json.loads(
+            (root / "credentials" / (agent["harness_credential"] + ".json")).read_text()
+        )
+        env["WINDSURF_API_KEY"] = credential["api_key"]
+    if agent["id"] == "coa":
+        private_write(managed / "rules.toml", _coa_rules(config).encode())
+        names.append("rules.toml")
+    private_write(managed / "harness.json", harness_document)
     private_write(managed / "config.yaml", yaml.safe_dump(document).encode())
     private_write(managed / "env.json", env)
     private_write(managed / "SOUL.md", soul.encode())
@@ -269,13 +425,7 @@ def _write_agent_files(root, config, secrets, agent):
         managed / "manifest.json",
         {
             name: hashlib.sha256((managed / name).read_bytes()).hexdigest()
-            for name in (
-                "config.yaml",
-                "env.json",
-                "SOUL.md",
-                "skills.json",
-                "revision.json",
-            )
+            for name in names
         },
     )
     for path in managed.iterdir():
@@ -301,20 +451,26 @@ def start_agent(root, config, secrets, agent, docker):
     write_agent_files(root, config, secrets, agent)
     changed = before != fingerprint()
     host = config["host_root"] + "/agents/" + agent["id"]
+    harness = HARNESSES[harness_of(agent)]
+    image = image_for(config, agent)
     spec = {
-        "Image": config["runtime_image"],
+        "Image": image,
         "User": "10000:10000",
         "WorkingDir": "/work",
-        "Entrypoint": ["/opt/hermes/.venv/bin/team-builder-worker"],
+        "Entrypoint": [harness["worker"]],
         "Env": [
-            "HOME=/home/hermes",
-            "HERMES_HOME=/home/hermes/.hermes",
+            "HOME=" + harness["home"],
+            *(
+                ["HERMES_HOME=/home/hermes/.hermes"]
+                if harness["home"] == "/home/hermes"
+                else ["TEAM_BUILDER_HARNESS=" + harness_of(agent)]
+            ),
             "PYTHONDONTWRITEBYTECODE=1",
         ],
         "Healthcheck": {
             "Test": [
                 "CMD",
-                "/opt/hermes/.venv/bin/python",
+                harness["python"],
                 "-m",
                 "team_builder.worker",
                 "health",
@@ -326,7 +482,7 @@ def start_agent(root, config, secrets, agent, docker):
         "HostConfig": {
             "Binds": [
                 host + "/managed:/run/team:ro",
-                host + "/home:/home/hermes",
+                host + "/home:" + harness["home"],
                 host + "/work:/work",
             ],
             "NetworkMode": config["project"] + "_community",
@@ -352,7 +508,7 @@ def start_agent(root, config, secrets, agent, docker):
     docker.ensure(
         config["project"] + "-agent-" + agent["id"],
         spec,
-        generation([config["runtime_image"], spec]),
+        generation([image, spec]),
     )
     current = docker.inspect(name)
     if (
@@ -362,4 +518,4 @@ def start_agent(root, config, secrets, agent, docker):
         and observed["Id"] == current["Id"]
         and observed.get("State", {}).get("Running")
     ):
-        docker.restart(name)
+        docker.restart(name, python_for(agent))

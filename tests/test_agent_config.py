@@ -87,11 +87,11 @@ def test_catalog_credentials_and_runtime_assignment(manager, monkeypatch):
     assigned = document["mcp_servers"]["assigned-search-v1"]
     assert assigned["headers"]["Authorization"] == "Bearer super-secret-value"
     assert assigned["tools"] == {"include": ["search"]}
-    assert document["platform_toolsets"]["buzz"] == ["file", "mcp"]
+    assert document["platform_toolsets"]["acp"] == ["file", "mcp"]
     assert "super-secret-value" not in json.dumps(inspect_config(manager, "coa"))
     assert "TEAM_BUILDER_TOKEN" not in env
     ordinary = {**agent, "id": "engineer"}
-    doc, _, _ = render(manager.config, manager.secrets, ordinary)
+    doc, _, _, _ = render(manager.config, manager.secrets, ordinary)
     assert "team" not in doc["mcp_servers"]
 
 
@@ -120,7 +120,9 @@ def test_config_updates_preserve_container_generation(manager, monkeypatch):
     agent["instructions"] = "Updated instructions"
     start_agent(manager.root, manager.config, manager.secrets, agent, docker)
     assert docker.ensure.call_args.args[2] == first
-    docker.restart.assert_called_once_with(manager.name(agent))
+    docker.restart.assert_called_once_with(
+        manager.name(agent), "/opt/hermes/.venv/bin/python"
+    )
 
 
 def test_coa_config_operation_requires_owner(manager):
@@ -140,7 +142,7 @@ def test_archived_unknown_and_applied_state(manager):
     value = inspect_config(manager, "coa")["settings"]
     with pytest.raises(ValueError, match="Unknown catalog"):
         configure(manager, "coa", 0, {**value, "skills": ["missing"]})
-    home = manager.root / "agents/coa/home/.hermes"
+    home = manager.root / "agents/coa/home/.team-builder"
     private_write(
         home / "team-builder-applied.json",
         {"pid": 12, "start_time": 123, "revision": 0},

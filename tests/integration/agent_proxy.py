@@ -16,8 +16,8 @@ def exercise(state):
 import json, os
 from pathlib import Path
 from agent.process_bootstrap import _get_proxy_for_base_url
-state = json.loads(Path('/home/hermes/.hermes/gateway_state.json').read_text())
-entries = Path('/proc/' + str(state['pid']) + '/environ').read_bytes().split(b'\\0')
+state = json.loads(Path('/home/hermes/.team-builder/gateway_state.json').read_text())
+entries = Path('/proc/' + str(state['platforms']['buzz']['writer_pid']) + '/environ').read_bytes().split(b'\\0')
 env = dict(entry.decode().split('=', 1) for entry in entries if b'=' in entry)
 for name in list(os.environ):
     if name.lower().endswith('proxy'):

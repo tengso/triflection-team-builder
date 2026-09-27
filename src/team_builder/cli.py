@@ -124,6 +124,36 @@ def require_internal_relay_image(image):
         )
 
 
+def require_harness_image(image, name):
+    labels = (
+        json.loads(
+            run(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{json .Config.Labels}}",
+                    image,
+                ]
+            )
+            or "{}"
+        )
+        or {}
+    )
+    if (
+        labels.get("io.team-builder.runtime") != "1"
+        or labels.get("io.team-builder.harness") != name
+        or labels.get("io.team-builder.buzz-acp") != "1"
+    ):
+        raise ValueError(
+            f"Image is not a Team Builder {name} harness image "
+            "(requires io.team-builder.runtime=1, io.team-builder.buzz-acp=1 and io.team-builder.harness="
+            + name
+            + ")"
+        )
+
+
 def resolve_image(reference):
     if not reference:
         raise ValueError("Buzz and Hermes image references are required")
@@ -208,24 +238,38 @@ team_builder=["resources/*"]
         return resolve_image(tag)
 
 
-def prepare_runtime(image, custom_base=False):
-    if custom_base:
-        return build_runtime(image)
-    marker = run(
+def image_label(image, name):
+    return run(
         [
             "docker",
             "image",
             "inspect",
             "--format",
-            '{{index .Config.Labels "io.team-builder.runtime"}}',
+            '{{index .Config.Labels "io.team-builder.' + name + '"}}',
             image,
         ]
     )
-    if marker != "1":
+
+
+def require_buzz_acp(image):
+    if image_label(image, "buzz-acp") != "1":
         raise ValueError(
-            "The runtime image does not contain Team Builder; use --hermes-image for an unbundled Hermes base"
+            "Agents run through buzz-acp since 0.7.0; this runtime image predates it "
+            "(requires io.team-builder.buzz-acp=1). Use a 0.7.0 or newer runtime image."
         )
-    return image
+
+
+def prepare_runtime(image, custom_base=False):
+    if custom_base:
+        runtime = build_runtime(image)
+    else:
+        if image_label(image, "runtime") != "1":
+            raise ValueError(
+                "The runtime image does not contain Team Builder; use --hermes-image for an unbundled Hermes base"
+            )
+        runtime = image
+    require_buzz_acp(runtime)
+    return runtime
 
 
 def init(args):
@@ -309,6 +353,31 @@ def initialize(root, args):
         runtime_image = prepare_runtime(
             images["hermes"], custom_base=bool(args.hermes_image)
         )
+        pull = {
+            item
+            for item in (getattr(args, "pull_harnesses", None) or "").split(",")
+            if item
+        }
+        unknown = pull - {"pi", "codex", "devin"}
+        if unknown:
+            raise ValueError(
+                "--pull-harnesses accepts only pi, codex, devin: " + ",".join(unknown)
+            )
+        for harness in ("pi", "codex", "devin"):
+            reference = getattr(args, harness + "_image", None) or PUBLISHED_IMAGES.get(
+                harness
+            )
+            if harness in pull:
+                if not reference:
+                    raise ValueError(
+                        f"No {harness} image configured or published; supply --{harness}-image"
+                    )
+                resolved = resolve_image(reference)
+                require_harness_image(resolved, harness)
+                images[harness] = resolved
+            elif reference:
+                # Harness images are resolved lazily on first agent start.
+                images[harness] = reference
         if internal_url:
             require_internal_relay_image(images["relay"])
             require_internal_relay_image(runtime_image)
@@ -488,7 +557,15 @@ def parser():
         action="store_true",
         help="Update management without replacing worker containers",
     )
-    upgrade.add_argument("--runtime-image", default=PUBLISHED_IMAGES["hermes"])
+    upgrade.add_argument("--runtime-image", default=None)
+    upgrade.add_argument(
+        "--harness",
+        choices=("pi", "codex", "devin"),
+        help="Install a harness image instead of updating the Hermes runtime",
+    )
+    upgrade.add_argument(
+        "--image", help="Image reference for --harness (required with --harness)"
+    )
     credential = sub.add_parser(
         "credential", help="Store a named model provider credential"
     )
@@ -551,6 +628,10 @@ def parser():
         "buzz-image",
         "hermes-image",
         "runtime-image",
+        "pi-image",
+        "codex-image",
+        "devin-image",
+        "pull-harnesses",
         "mc-image",
     ):
         command.add_argument(
@@ -601,7 +682,13 @@ def main():
         if args.command == "upgrade":
             from .upgrade import upgrade
 
-            upgrade(args.state_dir, args.runtime_image, manager_only=args.manager_only)
+            upgrade(
+                args.state_dir,
+                args.runtime_image,
+                manager_only=args.manager_only,
+                harness=args.harness,
+                harness_image=args.image,
+            )
             return
         if args.command in ("github-credential", "github-access"):
             from .github_access import read_token, store

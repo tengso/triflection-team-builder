@@ -234,7 +234,9 @@ class Manager:
                     "error": "Restart outcome is failed or uncertain; inspect health before submitting a new request"
                 }
             try:
-                self.docker.restart(self.name(agent))
+                from .runtime import python_for
+
+                self.docker.restart(self.name(agent), python_for(agent))
             except Exception:  # noqa: BLE001 -- never expose Docker diagnostics to dashboard
                 result = {
                     "error": "Gateway restart could not be confirmed. Check agent health and ensure its runtime supports gateway-only restart. The container was not restarted."
@@ -335,11 +337,24 @@ class Manager:
             return {"id": agent["id"], "channels": agent["channel_ids"]}
         agent = self.registry.get("agent/" + op["id"])
         if action == "create_agent":
+            if op["id"] == "coa" and op.get("harness", "hermes") != "hermes":
+                raise ValueError("COA must run on Hermes")
+            if (
+                op.get("harness_credential")
+                and not (
+                    self.root / "credentials" / (op["harness_credential"] + ".json")
+                ).is_file()
+            ):
+                raise ValueError(
+                    "Unknown named credential; provision it with team-builder credential first"
+                )
             if op.get("github_credential"):
                 from .github_access import token_for
 
                 token_for(self.root, op["github_credential"])
-            fingerprint = hashlib.sha256(wire(op)).hexdigest()
+            fingerprint = hashlib.sha256(
+                wire({k: v for k, v in op.items() if k != "harness" or v != "hermes"})
+            ).hexdigest()
             if agent and agent.get("creation") != fingerprint:
                 raise ValueError(
                     "Agent ID already exists with a different specification"
@@ -607,6 +622,8 @@ class Manager:
         return self.execute(approval_event_id, json.loads(row["body"]), proposal=True)
 
     def inspect(self):
+        from .runtime import harness_of
+
         agents = []
         for agent in self.registry.list("agent"):
             agents.append(
@@ -623,6 +640,7 @@ class Manager:
                     )
                 }
             )
+            agents[-1]["harness"] = harness_of(agent)
             agents[-1]["config_revision"] = agent.get("config_revision", 0)
             agents[-1]["gateway_ready"] = self.docker.ready(self.name(agent))
         return {

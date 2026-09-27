@@ -1,7 +1,6 @@
 import argparse
 import hashlib
 import json
-import socket
 import threading
 import time
 from datetime import UTC, datetime
@@ -198,42 +197,28 @@ def test_engine_cross_installation_and_log_suppression():
 
 
 def test_gateway_live_witness_and_stopped_archive(tmp_path):
-    # Short socket path is necessary on macOS and Linux.
     import tempfile
 
     with tempfile.TemporaryDirectory(dir="/tmp", prefix="tb-gw-") as directory:
         from pathlib import Path
 
         root = Path(directory).resolve()
-        home = root / "agents/a/home/.hermes"
-        (home / "state").mkdir(parents=True)
+        home = root / "agents/a/home/.team-builder"
+        home.mkdir(parents=True)
         state = {
             "pid": 7,
             "start_time": 12,
-            "updated_at": "2020-01-01T00:00:00+00:00",
+            "updated_at": datetime.now(UTC).isoformat(),
             "gateway_state": "running",
-            "active_agents": 0,
-            "platforms": {
-                "buzz": {"state": "connected", "writer_pid": 7, "writer_start_time": 12}
-            },
+            "platforms": {"buzz": {"state": "connected", "writer_pid": 9}},
         }
         private_write(home / "gateway_state.json", state)
-        listener = socket.socket(socket.AF_UNIX)
-        listener.bind(str(home / "state/gateway.loop-tick.7.sock"))
-        listener.listen()
-
-        def respond():
-            conn, _ = listener.accept()
-            conn.sendall(b"1")
-            conn.close()
-
-        thread = threading.Thread(target=respond)
-        thread.start()
         current = gateway(root, "a", {"status": "running"})
-        thread.join()
-        listener.close()
         assert current["responsive"] is True and current["buzz"] == "connected"
-        assert current["stale"] is False  # state-change timestamp is not heartbeat
+        assert current["stale"] is False
+        # A heartbeat older than the freshness window is not responsive.
+        state["updated_at"] = "2020-01-01T00:00:00+00:00"
+        private_write(home / "gateway_state.json", state)
         current = gateway(root, "a", {"status": "running"})
         assert current["responsive"] is False and current["buzz"] == "unknown"
         for status in ("stopped", "exited", "missing"):
@@ -243,6 +228,42 @@ def test_gateway_live_witness_and_stopped_archive(tmp_path):
             "a",
             {"status": "running", "started_at": datetime.now(UTC).isoformat()},
         )["stale"]
+
+
+def test_codex_agent_snapshot_reads_team_builder_state(manager, observer):
+    manager.config["images"] = {"codex": "codex-image"}
+    manager.execute(
+        message(manager, "harness dashboard"),
+        [
+            {"action": "create_channel", "id": "dev", "name": "Development"},
+            {
+                "action": "create_agent",
+                "id": "coder",
+                "name": "Coder",
+                "instructions": "Write code",
+                "channels": ["dev"],
+                "harness": "codex",
+            },
+        ],
+    )
+    agent = manager.resource("coder", "agent")
+    home = manager.root / "agents/coder/home/.team-builder"
+    home.mkdir(parents=True)
+    private_write(
+        home / "gateway_state.json",
+        {
+            "pid": 7,
+            "start_time": 12,
+            "updated_at": datetime.now(UTC).isoformat(),
+            "gateway_state": "running",
+            "platforms": {"buzz": {"state": "connected", "writer_pid": 9}},
+        },
+    )
+    kind, record = observer.resource("agent", agent)
+    assert kind == "agent"
+    assert record["harness"] == "codex"
+    assert record["gateway"]["state"] == "running"
+    assert record["gateway"]["responsive"] is True
 
 
 def test_registry_failure_preserves_stale_snapshot(observer, monkeypatch):
@@ -427,7 +448,12 @@ def test_restart_owner_boundary_and_retry(observer, monkeypatch):
     import uuid
 
     calls = []
-    monkeypatch.setattr(observer.manager.docker, "restart", calls.append, raising=False)
+    monkeypatch.setattr(
+        observer.manager.docker,
+        "restart",
+        lambda name, python="/opt/hermes/.venv/bin/python": calls.append(name),
+        raising=False,
+    )
     key = provision(observer.root)
     server = serve(observer, ("127.0.0.1", 0))
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -494,7 +520,7 @@ def test_restart_failure_is_sanitized_and_not_replayed(manager, monkeypatch):
 
     calls = []
 
-    def fail(name):
+    def fail(name, python="/opt/hermes/.venv/bin/python"):
         calls.append(name)
         raise RuntimeError("private-secret")
 

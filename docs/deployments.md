@@ -71,7 +71,7 @@ team-builder deployment grant-deployment.json \
   --state-dir ~/.local/state/team-builder/default
 ```
 
-The service saves the assignment, adds the managed `deployments` MCP connection and deployment instructions to that agent, and reloads a running agent's gateway. Its container and detached application processes are retained; an active agent response may be interrupted. Stopped agents load the configuration on their next start and cannot use the deployment tools while stopped. No manual token copying or MCP catalog entry is needed.
+The service saves the assignment, adds the managed `deployments` MCP connection and deployment instructions to that agent, and reloads a running agent's gateway. pi agents have no MCP support; they instead receive `/run/team/deployment_cli.py` (every deployments MCP tool as a subcommand — `inspect`, `releases`, `logs`, `plan`, `propose`, `execute`, `approve`, `get-operation`, `profiles`, `preflight`, `plan-configuration`, `automation-status`, `automation-retry`), their token as the private file `/run/team/deployment-token`, and a managed `team-deployments` skill documenting the commands and approval rules. The CLI calls the same manager endpoint, so authorization, scope and owner approval are identical. Revoking access removes all three. Its container and detached application processes are retained; an active agent response may be interrupted. Stopped agents load the configuration on their next start and cannot use the deployment tools while stopped. No manual token copying or MCP catalog entry is needed.
 
 ### COA assignment through Buzz
 

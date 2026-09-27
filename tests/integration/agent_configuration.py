@@ -23,7 +23,7 @@ def exercise(state, key):
     def gateway_pid():
         return int(
             worker_script(
-                "import json; from pathlib import Path; print(json.loads(Path('/home/hermes/.hermes/gateway_state.json').read_text())['pid'])"
+                "import json; from pathlib import Path; print(json.loads(Path('/home/hermes/.team-builder/gateway_state.json').read_text())['pid'])"
             )
         )
 

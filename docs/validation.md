@@ -181,6 +181,69 @@ live language-model conversation.
 - The packaged installer passed a separate isolated Ubuntu test with v0.5.0 workers: a manager-only upgrade applied and removed proxy settings successfully. Worker containers were retained, and subsequent dashboard checks passed. Temporary test resources were removed.
 - Both published image digests and release tags were verified anonymously. No real model-provider request or connection to the user's cloud proxy was made; reachability from that LXD installation must be checked there.
 
+## Agent harnesses on buzz-acp — 2026-09-24
+
+Run on the `sandbox2` OrbStack Ubuntu 24.04 `x86_64` VM. All five images were
+rebuilt from the pinned sources with `prepare_images.py` and the packaging
+Dockerfiles: buzz 408 MB, hermes 1.36 GB, pi 1.32 GB, codex 1.62 GB, devin
+1.1 GB. The 176 unit tests passed locally (Ruff check/format clean).
+
+`tests/integration/bootstrap_images.py` ran with all five `*_IMAGE` variables,
+`EXERCISE_HARNESSES=1`, a real OpenRouter key (`PROVIDER_KEY_FILE`), and
+`PROVIDER_MODEL=openrouter/auto` (`~/build-logs/bootstrap-acp12.log`). All 12
+PASS lines: client tunnel, signed owner access, and unknown-host rejection;
+agents bootstrapped without the tunnel; internal membership, host-bound
+signatures, client-facing invites and media; owner-only read-only dashboard,
+live gateway witness, community readback, and secret isolation; configuration
+reload, skill assignment/removal, conflict, rollback, manager restart
+persistence, and detached app retention; proxy application/removal in a live
+gateway, native model routing, internal bypass, and container retention; codex,
+hermes, and pi agents each answered a mention and recovered from a gateway-only
+restart (3 PASS lines); COA answered an unmentioned owner office message via its
+`rules.toml` subscription; harness gateway turns, gateway state, and restart
+recovery; published image bootstrap, gateway readiness, and identity-preserving
+resume.
+
+Live replies through the real provider — codex: “Online and ready.”, hermes:
+“Online and ready in Lab.”, pi: “Online and ready. I'm in Lab and reachable for
+tasks here.”, and COA (unmentioned office message, answered after using its
+`team` MCP tools): “Current team (4 agents, all running): Chief of Agents (me),
+Harness codex, Harness hermes, Harness pi”.
+
+Devin was skipped (`TEAM_BUILDER_DEVIN_CREDENTIAL` unset); its image build and
+startup checks passed, but no live devin turn has been exercised.
+
+The migration to upstream `buzz-acp` surfaced and fixed these defects: Hermes
+must be installed with `--extra acp` to provide `hermes-acp`; `buzz-acp` requires
+`ws://`/`wss://` relay URLs (managed HTTP URLs are rewritten); `--agent-args`
+defaults to `acp`, so it is now passed explicitly for every harness; the
+`pool::prompt` turn log lines are filtered out by the default `buzz_acp=info`
+filter, so workers set `RUST_LOG=buzz_acp=info,pool=info`; reconnect marker
+matching needed to recognise `relay reconnected to`/`reconnect succeeded` (a
+connect marker wins over a reconnect marker on the same line); pi's
+`models.json` treats a bare `apiKey` string as a literal key — env interpolation
+needs `$VAR`, so the literal resolved key is written (0600) instead; pi's
+OpenRouter base URL must be `https://openrouter.ai/api/v1`; agents must post
+replies themselves with `buzz messages send --reply-to` because a turn's final
+text is not delivered automatically — and Hermes needs `BUZZ_MANAGED_AGENT=1` so
+its terminal subprocesses keep the `BUZZ_*` credentials; and `/tmp` is `noexec`
+in the worker container, so the Pi launcher gets a `TMPDIR` under the state
+directory.
+
+Reproduce with:
+
+```sh
+PROVIDER_KEY_FILE=$HOME/.openrouter.key PROVIDER_MODEL=openrouter/auto \
+  BUZZ_IMAGE=team-builder-buzz:local HERMES_IMAGE=team-builder-hermes:local \
+  PI_IMAGE=team-builder-pi:local CODEX_IMAGE=team-builder-codex:local \
+  DEVIN_IMAGE=team-builder-devin:local \
+  EXERCISE_HARNESSES=1 \
+  python tests/integration/bootstrap_images.py
+```
+
+Set `TEAM_BUILDER_DEVIN_CREDENTIAL` to a stored credential name to include
+devin.
+
 ## Environment profiles — 2026-09-26
 
 - 188 unit tests passed, including credential isolation, immutable profiles,
@@ -252,3 +315,42 @@ The first candidate failed because Quay rejected the pinned MinIO dependency.
 Unmodified cached Linux amd64 dependencies were mirrored into the existing public
 package, verified for anonymous access, and pinned before the successful rerun.
 The release includes the image archive and matching upstream source archives.
+
+## v0.7.0 pre-release validation — 27 September 2026
+
+Run on the `sandbox2` OrbStack Ubuntu 24.04 `x86_64` VM from the merged 0.7.0 tree
+(v0.6.0 plus buzz-acp harnesses and the pi deployment CLI). 229 unit tests passed
+on macOS and Linux; Ruff check and format passed. The local Hermes, pi, codex and
+devin images were the earlier from-source builds refreshed with the 0.7.0 wheel and
+the `io.team-builder.buzz-acp=1` label (a from-scratch rebuild was blocked by VM
+egress); CI builds the release images from source.
+
+- **Fresh install, live provider** (`bootstrap_images.py` with all five local
+  images, `EXERCISE_HARNESSES=1`, `EXERCISE_MANAGEMENT=1`, an OpenRouter key and
+  `openrouter/auto`): tunnel, internal routing, signatures, dashboard, configuration
+  reload/rollback and proxy checks passed. Codex, Hermes and pi agents answered in
+  thread through buzz-acp and recovered from gateway-only restarts. COA answered an
+  unmentioned owner office message with the team roster. A pi agent granted staging
+  access planned and proposed a deployment with the bundled CLI; the proposal was
+  signed by the pi agent in its channel, the owner replied `approve`, and the job
+  reached `succeeded`. In a separate run of the same code, management checks
+  (agent-signed deployment proposals without COA, projects, invitations,
+  memberships, COA lifecycle) passed.
+- **Upgrade from the published v0.6.0 release:** installed the v0.6.0 wheel with
+  its pinned images, created a Hermes worker, and confirmed it answered on the
+  Hermes-native adapter. The 0.7.0 CLI refused `upgrade --manager-only` while
+  workers ran the pre-0.7.0 runtime and left state unchanged. A full `upgrade`
+  recreated the manager, COA and the worker on the 0.7.0 runtime; all became
+  healthy, the worker's buzz-acp gateway state was `connected`, the worker answered
+  a mention, and COA answered an unmentioned office message listing both agents.
+  `upgrade --harness pi` then enabled a pi agent that answered in thread.
+- Devin was not exercised live (no Devin credential).
+- Test changes found by these runs: harness checks now run before the management
+  exercise (which archives COA and deletes the office), and the management job
+  assertion is scoped to its own application.
+- Known limit (unchanged since v0.6.0): Mission Control's observer queries the relay
+  every five seconds with the manager's identity (two queries per agent plus one per
+  channel and project). With harness agents still running, the subsequent
+  management exercise exceeded the relay's default 300 calls/minute for that
+  identity (HTTP 429). CI runs management without harness agents. Caching
+  per-agent registration/profile reads is a planned follow-up.

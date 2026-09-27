@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+ARG BUZZ_IMAGE
+ARG UBUNTU_IMAGE=ubuntu@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+FROM ${BUZZ_IMAGE} AS buzz
+FROM ${UBUNTU_IMAGE}
+ARG HARNESS
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/tengso/triflection-team-builder" \
+    org.opencontainers.image.revision=$SOURCE_REVISION \
+    org.opencontainers.image.description="Team Builder worker runtime for the ${HARNESS} CLI" \
+    org.opencontainers.image.licenses="MIT AND Apache-2.0" \
+    io.team-builder.runtime="1" \
+    io.team-builder.harness="$HARNESS" \
+    io.team-builder.gateway-supervisor="1" \
+    io.team-builder.buzz-acp="1" \
+    io.team-builder.internal-relay="1" \
+    io.team-builder.python="/opt/team-builder/.venv/bin/python"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-dev build-essential ca-certificates git curl ripgrep xz-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/team-builder/.venv
+COPY team-builder /opt/team-builder/pkg
+RUN /opt/team-builder/.venv/bin/pip install --no-cache-dir /opt/team-builder/pkg \
+    && /opt/team-builder/.venv/bin/pip check
+COPY --from=buzz /usr/local/bin/buzz /usr/local/bin/buzz
+COPY --from=buzz /usr/local/bin/buzz-acp /usr/local/bin/buzz-acp
+COPY --from=buzz /usr/share/licenses/buzz/ /usr/share/licenses/buzz/
+COPY LICENSE* /usr/share/licenses/team-builder/
+COPY team-builder-source.json /usr/share/team-builder/harness-source.json
+COPY harness.json install_harness.sh /opt/team-builder/
+RUN sh /opt/team-builder/install_harness.sh "$HARNESS"
+RUN /usr/sbin/groupadd --gid 10000 agent \
+    && /usr/sbin/useradd --uid 10000 --gid 10000 --home-dir /home/agent --create-home agent \
+    && mkdir -p /work && chown 10000:10000 /work /home/agent
+ENV HOME=/home/agent \
+    PATH=/opt/team-builder/.venv/bin:/usr/local/bin:/usr/bin:/bin \
+    PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+USER 10000:10000
+WORKDIR /work
+RUN buzz --help >/dev/null && buzz-acp --help >/dev/null \
+    && python -c "import team_builder.worker, team_builder.harness_config"
+ENTRYPOINT ["/opt/team-builder/.venv/bin/team-builder-worker"]

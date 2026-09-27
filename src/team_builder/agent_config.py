@@ -8,7 +8,14 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field
 
 TOOLS = ["terminal", "file", "skills", "memory", "todo", "session_search"]
+HARNESS_TOOLS = {"hermes": TOOLS}
 Slug = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,47}$")]
+
+
+def available_tools(agent):
+    from .runtime import harness_of
+
+    return HARNESS_TOOLS.get(harness_of(agent), [])
 
 
 class Settings(BaseModel):
@@ -59,6 +66,12 @@ def catalog(manager):
 
 def add_catalog(manager, value):
     entry = CatalogEntry.model_validate(value).model_dump()
+    from .runtime import DEPLOYMENT_SKILL
+
+    if entry["id"] == DEPLOYMENT_SKILL:
+        raise ValueError(
+            "This catalog ID is reserved for the built-in deployment skill"
+        )
     if entry["kind"] == "skill":
         if (
             not entry["content"].strip()
@@ -105,9 +118,11 @@ def inspect_config(manager, identifier):
     agent = manager.resource(identifier, "agent")
     applied = None
     from .dashboard_observe import read_local
+    from .runtime import harness_of, home_dir
 
+    harness = harness_of(agent)
     try:
-        home = manager.root / "agents" / identifier / "home" / ".hermes"
+        home = home_dir(manager.root, agent)
         marker = json.loads(read_local(home / "team-builder-applied.json", home, 4096))
         gateway = json.loads(read_local(home / "gateway_state.json", home, 65536))
         if (
@@ -124,7 +139,7 @@ def inspect_config(manager, identifier):
     ]
     from .runtime import render
 
-    _, _, prompt = render(manager.config, manager.secrets, agent)
+    _, _, _, prompt = render(manager.config, manager.secrets, agent)
     return {
         "id": identifier,
         "revision": agent.get("config_revision", 0),
@@ -133,9 +148,12 @@ def inspect_config(manager, identifier):
         "settings": settings(manager, agent),
         "history": sorted(history, key=lambda h: h["revision"], reverse=True)[:50],
         "prompt_preview": prompt,
-        "prompt_note": "Managed SOUL.md layer; Hermes also adds runtime, memory, and project context.",
+        "prompt_note": "Managed SOUL.md layer; Hermes also adds runtime, memory, and project context."
+        if harness == "hermes"
+        else f"Managed instructions layer supplied to the {harness} CLI as its system/AGENTS instructions.",
         "catalog": catalog(manager),
-        "available_tools": TOOLS,
+        "harness": harness,
+        "available_tools": available_tools(agent),
         "impact": "Gateway restart for running agents; detached app servers keep running. Stopped agents apply on next start.",
     }
 
@@ -155,6 +173,10 @@ def configure(manager, identifier, expected_revision, value, source="coa"):
             entry = manager.registry.get("catalog/" + entry_id)
             if not entry or entry["kind"] != kind:
                 raise ValueError("Unknown catalog assignment")
+    from .runtime import harness_of
+
+    if harness_of(agent) == "pi" and value["mcp"]:
+        raise ValueError("pi agents do not support MCP connections")
     before = settings(manager, agent)
     if before == value:
         return {"revision": revision, "status": "unchanged"}
@@ -213,7 +235,9 @@ def apply_config(manager, identifier):
         write_agent_files(manager.root, manager.config, manager.secrets, agent)
         if agent["state"] == "running":
             stage = "gateway restart"
-            manager.docker.restart(manager.name(agent))
+            from .runtime import python_for
+
+            manager.docker.restart(manager.name(agent), python_for(agent))
         return {
             "revision": agent.get("config_revision", 0),
             "status": "starting" if agent["state"] == "running" else "saved",

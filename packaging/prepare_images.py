@@ -24,12 +24,25 @@ def apply_source_patch(destination, patch):
         )
 
 
+def copy_builder(root, destination):
+    builder = destination / "team-builder"
+    builder.mkdir(parents=True)
+    shutil.copy2(root / "pyproject.toml", builder)
+    shutil.copytree(
+        root / "src/team_builder",
+        builder / "src/team_builder",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     sources = json.loads((root / "packaging/sources.json").read_text())
     output = root / ".image-build"
     output.mkdir(exist_ok=True)
     for name, source in sources.items():
+        if "repository" not in source:
+            continue
         destination = output / name
         if destination.exists():
             raise SystemExit(
@@ -64,14 +77,7 @@ def main():
                 internal_patch.read_bytes()
             ).hexdigest()
         else:
-            builder = destination / "team-builder"
-            builder.mkdir()
-            shutil.copy2(root / "pyproject.toml", builder)
-            shutil.copytree(
-                root / "src/team_builder",
-                builder / "src/team_builder",
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-            )
+            copy_builder(root, destination)
         (destination / ".dockerignore").write_text(
             ".git\n.venv\ntarget\n**/__pycache__\n"
         )
@@ -79,6 +85,44 @@ def main():
             json.dumps(source, indent=2) + "\n"
         )
         print(f"Prepared {name} at {source['revision']}", flush=True)
+    prepare_harness(root, sources, output)
+
+
+def prepare_harness(root, sources, output):
+    destination = output / "harness"
+    if destination.exists():
+        raise SystemExit(
+            f"Remove the previous build context before retrying: {destination}"
+        )
+    destination.mkdir()
+    copy_builder(root, destination)
+    pins = {k: sources[k] for k in ("node", "pi", "pi_acp", "codex_acp", "devin")}
+    (destination / "harness.json").write_text(json.dumps(pins, indent=2) + "\n")
+    shutil.copy2(root / "packaging/install_harness.sh", destination)
+    licenses = sorted(root.glob("LICENSE*")) + sorted(root.glob("NOTICE*"))
+    if licenses:
+        for path in licenses:
+            shutil.copy2(path, destination)
+    else:
+        (destination / "LICENSE").write_text(
+            "Bundled components are listed with their origins in "
+            "team-builder-source.json.\n"
+        )
+    (destination / ".dockerignore").write_text(".git\n.venv\ntarget\n**/__pycache__\n")
+    (destination / "team-builder-source.json").write_text(
+        json.dumps(pins, indent=2) + "\n"
+    )
+    print(
+        "Prepared harness context: pi "
+        + pins["pi"]["version"]
+        + " + pi-acp "
+        + pins["pi_acp"]["version"]
+        + ", codex-acp "
+        + pins["codex_acp"]["version"]
+        + ", devin "
+        + pins["devin"]["version"],
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

@@ -214,7 +214,9 @@ class Deployments:
                 self.manager.root, self.manager.config, self.manager.secrets, item
             )
             if item["state"] == "running":
-                self.manager.docker.restart(self.manager.name(item))
+                from .runtime import python_for
+
+                self.manager.docker.restart(self.manager.name(item), python_for(item))
         return {"agent": agent, "applications": sorted(rights)}
 
     def authorized(self, agent, key):

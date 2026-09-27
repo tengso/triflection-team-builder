@@ -178,3 +178,158 @@ def test_no_secrets_in_inspect(manager, create_ops):
     for secret in manager.secrets.values():
         assert secret not in result
     assert manager.resource("engineer", "agent")["secret"] not in result
+
+
+def real_launch(manager, monkeypatch):
+    monkeypatch.setattr("os.chown", lambda *args: None)
+    monkeypatch.setattr(manager, "launch", manager.__class__.launch.__get__(manager))
+
+
+def test_codex_agent_uses_harness_image_and_bundle(manager, monkeypatch):
+    real_launch(manager, monkeypatch)
+    manager.config["images"] = {"codex": "codex-image"}
+    ops = [
+        {"action": "create_channel", "id": "dev", "name": "Development"},
+        {
+            "action": "create_agent",
+            "id": "coder",
+            "name": "Coder",
+            "instructions": "Write code",
+            "channels": ["dev"],
+            "harness": "codex",
+        },
+    ]
+    assert manager.execute(message(manager, "harness-1"), ops)["state"] == "complete"
+    name = manager.name(manager.resource("coder", "agent"))
+    spec = manager.docker.specs[name]
+    assert spec["Image"] == "codex-image"
+    assert spec["Entrypoint"] == ["/opt/team-builder/.venv/bin/team-builder-worker"]
+    assert "TEAM_BUILDER_HARNESS=codex" in spec["Env"]
+    assert spec["HostConfig"]["Binds"][1].endswith(":/home/agent")
+    managed = manager.root / "agents/coder/managed"
+    assert json.loads((managed / "harness.json").read_text())["harness"] == "codex"
+    manifest = json.loads((managed / "manifest.json").read_text())
+    assert "harness.json" in manifest
+    env = json.loads((managed / "env.json").read_text())
+    assert env["OPENROUTER_API_KEY"] == "model-secret"
+    assert "WINDSURF_API_KEY" not in env
+    assert json.loads((managed / "config.yaml").read_text()) == {}
+
+
+def test_devin_agent_uses_stored_credential(manager, monkeypatch):
+    from team_builder.credentials import store_credential
+
+    real_launch(manager, monkeypatch)
+    manager.config["images"] = {"devin": "devin-image"}
+    store_credential(manager.root, "devin-acct", "devin-key-123")
+    ops = [
+        {"action": "create_channel", "id": "dev", "name": "Development"},
+        {
+            "action": "create_agent",
+            "id": "dev",
+            "name": "Dev",
+            "instructions": "Work",
+            "channels": ["dev"],
+            "harness": "devin",
+            "harness_credential": "devin-acct",
+        },
+    ]
+    with pytest.raises(ValueError, match="COA must run on Hermes"):
+        manager.apply(ops[1] | {"id": "coa"})
+    missing = manager.execute(
+        message(manager, "harness-2"),
+        [ops[0], {**ops[1], "id": "nodev", "harness_credential": "absent"}],
+    )
+    assert missing["state"] == "partial_failure"
+    assert "Unknown named credential" in missing["error"]
+    assert manager.execute(message(manager, "harness-3"), ops)["state"] == "complete"
+    env = json.loads((manager.root / "agents/dev/managed/env.json").read_text())
+    assert env["WINDSURF_API_KEY"] == "devin-key-123"
+    assert "OPENROUTER_API_KEY" not in env and "OPENAI_API_KEY" not in env
+    shown = manager.inspect()
+    entry = next(a for a in shown["agents"] if a["id"] == "dev")
+    assert entry["harness"] == "devin"
+    assert "devin-key-123" not in json.dumps(shown)
+
+
+def test_coa_and_pi_restrictions(manager, monkeypatch):
+    real_launch(manager, monkeypatch)
+    manager.config["images"] = {"pi": "pi-image"}
+    channel = {"action": "create_channel", "id": "dev", "name": "Development"}
+    manager.execute(message(manager, "harness-4"), [channel])
+    with pytest.raises(ValueError, match="COA must run on Hermes"):
+        manager.apply(
+            {
+                "action": "create_agent",
+                "id": "coa",
+                "name": "COA",
+                "instructions": "x",
+                "channels": ["dev"],
+                "harness": "pi",
+            }
+        )
+    assert (
+        manager.execute(
+            message(manager, "harness-5"),
+            [
+                {
+                    "action": "create_agent",
+                    "id": "helper",
+                    "name": "Helper",
+                    "instructions": "x",
+                    "channels": ["dev"],
+                    "harness": "pi",
+                }
+            ],
+        )["state"]
+        == "complete"
+    )
+    from team_builder.agent_config import add_catalog, configure, inspect_config
+
+    add_catalog(
+        manager,
+        {
+            "id": "search",
+            "kind": "mcp",
+            "name": "Search",
+            "url": "https://example.com/mcp",
+        },
+    )
+    value = inspect_config(manager, "helper")["settings"]
+    with pytest.raises(ValueError, match="pi agents do not support MCP"):
+        configure(manager, "helper", 0, {**value, "mcp": ["search"]})
+    info = inspect_config(manager, "helper")
+    assert info["harness"] == "pi" and info["available_tools"] == []
+    assert "{harness}" not in info["prompt_note"]
+
+
+def test_missing_harness_image_is_actionable(manager, monkeypatch):
+    real_launch(manager, monkeypatch)
+    manager.execute(
+        message(manager, "harness-6"),
+        [{"action": "create_channel", "id": "dev", "name": "Development"}],
+    )
+    result = manager.execute(
+        message(manager, "harness-7"),
+        [
+            {
+                "action": "create_agent",
+                "id": "helper",
+                "name": "Helper",
+                "instructions": "x",
+                "channels": ["dev"],
+                "harness": "pi",
+            }
+        ],
+    )
+    assert result["state"] == "partial_failure"
+    assert "upgrade --harness pi" in result["error"]
+
+
+def test_hermes_create_fingerprint_ignores_default_harness(manager, create_ops):
+    source = message(manager, "harness-8")
+    first = manager.execute(source, create_ops)
+    assert first["state"] == "complete"
+    op = {**create_ops[1], "harness": "hermes"}
+    again = manager.apply(op)
+    assert again["id"] == "engineer"

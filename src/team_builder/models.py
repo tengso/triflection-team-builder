@@ -2,13 +2,21 @@
 
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    model_validator,
+)
 
 from .agent_config import Settings
 from .repositories import github_url
 
 Slug = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,47}$")]
 Name = Annotated[str, Field(min_length=1, max_length=120)]
+Harness = Literal["hermes", "pi", "codex", "devin"]
 
 
 class Operation(BaseModel):
@@ -23,6 +31,19 @@ class CreateAgent(Operation):
     channels: Annotated[list[Slug], Field(min_length=1, max_length=30)]
     model: Annotated[str, Field(min_length=1, max_length=200)] | None = None
     github_credential: Slug | None = None
+    harness: Harness = Field(
+        default="hermes",
+        description="Agent runtime: hermes (default, full Buzz features), pi, codex, or devin. devin requires harness_credential naming a stored Devin account key.",
+    )
+    harness_credential: Slug | None = None
+
+    @model_validator(mode="after")
+    def check_harness_credential(self):
+        if (self.harness == "devin") != (self.harness_credential is not None):
+            raise ValueError(
+                "harness_credential is required for devin and not accepted for other harnesses"
+            )
+        return self
 
 
 class UpdateAgent(Operation):

@@ -51,13 +51,13 @@ def test_restricted_operation_schema(operation):
 def test_worker_has_no_management_access(manager, create_ops):
     manager.execute(message(manager), create_ops)
     worker = manager.resource("engineer", "agent")
-    config, env, soul = render(manager.config, manager.secrets, worker)
+    config, _, env, soul = render(manager.config, manager.secrets, worker)
     assert not config["mcp_servers"]
     assert manager.secrets["admin"] not in json.dumps([config, env, soul])
     assert manager.secrets["token"] not in json.dumps([config, env, soul])
     assert manager.owner_secret not in json.dumps([config, env, soul])
     coa = manager.resource("coa", "agent")
-    config, env, _ = render(manager.config, manager.secrets, coa)
+    config, _, env, _ = render(manager.config, manager.secrets, coa)
     assert (
         config["mcp_servers"]["team"]["env"]["TEAM_BUILDER_TOKEN"]
         == manager.secrets["token"]
@@ -67,12 +67,12 @@ def test_worker_has_no_management_access(manager, create_ops):
 
 def test_provider_aliases_are_native_hermes_configuration(manager):
     agent = manager.resource("coa", "agent")
-    config, env, _ = render(
+    config, _, env, _ = render(
         dict(manager.config, provider="openai"), manager.secrets, agent
     )
     assert config["model"]["provider"] == "openai-api"
     assert env["OPENAI_API_KEY"] == manager.secrets["provider_key"]
-    config, env, _ = render(
+    config, _, env, _ = render(
         dict(manager.config, provider="custom", base_url="http://models:8080/v1"),
         manager.secrets,
         agent,

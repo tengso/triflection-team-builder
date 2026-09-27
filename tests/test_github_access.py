@@ -36,14 +36,14 @@ def test_grant_is_scoped_private_and_durable(github):
     path = manager.root / "agents/engineer/managed/github-token"
     assert path.read_text() == "github_test_private_token"
     assert path.stat().st_mode & 0o777 == 0o600
-    _, env, soul = render(manager.config, manager.secrets, agent)
+    _, _, env, soul = render(manager.config, manager.secrets, agent)
     assert env["GITHUB_TOKEN_FILE"] == "/run/team/github-token"
     assert "github_test_private_token" not in json.dumps(env) + soul
     assert (
         "GITHUB_TOKEN_FILE"
         not in render(
             manager.config, manager.secrets, manager.resource("coa", "agent")
-        )[1]
+        )[2]
     )
     assert not (manager.root / "agents/coa/managed/github-token").exists()
     inspection = manager.inspect()
@@ -80,7 +80,7 @@ def test_revoke_stopped_worker_and_rotation(github):
         "GITHUB_TOKEN_FILE"
         not in render(
             manager.config, manager.secrets, manager.resource("engineer", "agent")
-        )[1]
+        )[2]
     )
 
 
