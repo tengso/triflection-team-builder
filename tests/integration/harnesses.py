@@ -158,7 +158,6 @@ def exercise(owner_secret):
     image = os.environ.get("APPLICATION_IMAGE")
     if image and "pi" in harnesses and not expect_failure:
         pi_deployment_flow(m, owner, owner_secret, execute, wait_ready, image)
-        agent_led_setup(m, owner, owner_secret, execute, wait_ready)
     print("PASS: harness bridge turns, gateway state, and restart recovery")
 
 
@@ -197,97 +196,6 @@ def agent_notice_wakes_agent(m, harnesses):
             return
         time.sleep(10)
     raise AssertionError(f"{target['id']} ignored an agent-signed p-tag notice")
-
-
-def agent_led_setup(m, owner, owner_secret, execute, wait_ready):
-    """A release agent proposes an application setup; owner approval executes it."""
-    from team_builder.deployment_api import handle
-    from team_builder.deployments import token
-
-    execute([{"action": "configure_release_agent", "agent": "harness-pi"}])
-    agent = m.resource("harness-pi", "agent")
-    wait_ready(agent)
-    channel = m.resource("harness-lab", "channel")["uuid"]
-    spec = {
-        "id": "ledger",
-        "repository": "test/ledger",
-        "services": [
-            {
-                "id": "web",
-                "command": ["python", "-m", "http.server", "8000"],
-                "port": 8000,
-                "health_path": "/",
-            }
-        ],
-    }
-    operations = [
-        {"action": "register_application", "spec": {**spec, "environment": "staging"}},
-        {
-            "action": "register_application",
-            "spec": {**spec, "environment": "production"},
-        },
-        {
-            "action": "generate_credential",
-            "application": "ledger",
-            "environment": "staging",
-            "id": "api-token",
-        },
-        {
-            "action": "register_profile",
-            "application": "ledger",
-            "environment": "staging",
-            "profile": {
-                "id": "standard-v1",
-                "secrets": {"API_TOKEN": "api-token"},
-                "required_env": ["API_TOKEN"],
-            },
-        },
-        {
-            "action": "configure_deployment_access",
-            "agent": "harness-pi",
-            "application": "ledger",
-            "environment": "staging",
-        },
-    ]
-    source = owner.publish(
-        sign(owner_secret, 9, [["h", channel]], "Set up the ledger application.")
-    )
-
-    def request(action, **body):
-        return handle(
-            m,
-            "/deployments",
-            "Bearer " + token(m.secrets, "harness-pi"),
-            {"agent": "harness-pi", "action": action, **body},
-        )
-
-    proposal = request(
-        "propose-change", source_event_id=source["id"], operations=operations
-    )
-    published = m.buzz.message(proposal["message_id"])
-    assert published["pubkey"] == agent["pubkey"], "proposal must be agent-signed"
-    approval = owner.publish(
-        sign(
-            owner_secret,
-            9,
-            [["h", channel], *reply_tags(published), ["p", agent["pubkey"]]],
-            "approve",
-        )
-    )
-    result = request("approve-change", approval_event_id=approval["id"])
-    assert result["state"] == "complete", result
-    assert "ledger/staging" in m.resource("harness-pi", "agent")["deployments"]
-    preflight = m.deployments.profiles.preflight("ledger", "staging", "standard-v1")
-    assert preflight["ready"], preflight
-    app = m.deployments.get("app/pi-acceptance/staging")
-    code, output = m.deployments.docker.exec_output(
-        m.deployments.name(app, "web"),
-        ["python", "-c", "print('captured'); raise SystemExit(3)"],
-    )
-    assert (code, output.strip()) == (3, "captured"), (code, output)
-    print(
-        "PASS: release agent proposal, owner approval, generated credential, exec output capture"
-    )
 
 
 def pi_deployment_flow(m, owner, owner_secret, execute, wait_ready, image):

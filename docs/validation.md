@@ -402,3 +402,18 @@ approval, generated credential, dependency attachment and restore, exec output
 capture), agent-signed deployment proposals and community management before
 promoting the `0.8.0` tags. All five release tags were verified for anonymous
 pulls, and the installer pins these digests.
+
+### v0.8.0 post-release live validation (published images)
+
+With outbound HTTPS restored, `sandbox2` ran `bootstrap_images.py` against the
+five published `0.8.0` digests with a real OpenRouter key
+(`EXERCISE_HARNESSES=1 EXERCISE_AGENT_SETUP=1 EXERCISE_MANAGEMENT=1`) and passed
+every check (`BOOTSTRAP-EXIT=0`): codex, hermes and pi agents answered and
+recovered from gateway restarts; COA answered an unmentioned office message; an
+**agent-signed, p-tagged release notice woke another buzz-acp agent**, confirming
+the 0.7.0 notice fix; a pi agent deployed through the deployment CLI after owner
+approval; the agent-led setup exercise, agent-signed deployment proposals,
+community management and identity-preserving resume all passed. Devin was
+skipped for lack of a Devin credential. A duplicate agent-setup step in
+`harnesses.py` that collided with `agent_setup.py` (same application ID) was
+removed from the test suite.
