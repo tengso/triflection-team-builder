@@ -108,16 +108,30 @@ def validate_bundle(path, run, config, destination):
     return manifest, image
 
 
-def loaded_image_id(manifest):
-    """Docker containerd stores use manifest IDs; classic stores use config IDs."""
+def cli_inspect(tag):
     result = subprocess.run(
-        ["docker", "image", "inspect", manifest["load_tag"]],
+        ["docker", "image", "inspect", tag],
         check=True,
         capture_output=True,
         text=True,
         timeout=30,
     )
-    image = json.loads(result.stdout)[0]
+    return json.loads(result.stdout)[0]
+
+
+def cli_load(path):
+    subprocess.run(
+        ["docker", "image", "load", "--input", str(path)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=600,
+    )
+
+
+def loaded_image_id(manifest, inspect=cli_inspect):
+    """Docker containerd stores use manifest IDs; classic stores use config IDs."""
+    image = inspect(manifest["load_tag"])
     config = manifest["image_config"]
     if (
         image.get("Os") != config["os"]
@@ -136,7 +150,9 @@ def loaded_image_id(manifest):
     return image["Id"]
 
 
-def sync(root, config):
+def sync(root, config, request=None, load=None, inspect=None):
+    """Import verified releases. The manager injects Docker API loaders; the CLI uses docker."""
+    request = request or operator_request
     if not config.environments or set(config.environments) - {"staging", "production"}:
         raise ValueError("Invalid release environments")
     if not config.services or any(
@@ -153,7 +169,7 @@ def sync(root, config):
             if state_file.exists()
             else {"imported": []}
         )
-        snapshot = operator_request(root, {"action": "inspect"})
+        snapshot = request(root, {"action": "inspect"})
         for env in config.environments:
             if not any(
                 a["id"] == config.application
@@ -259,17 +275,15 @@ def sync(root, config):
                             if previous != cache:
                                 previous.unlink()
                     manifest, image = validate_bundle(bundle, run, config, tmp)
-                    subprocess.run(
-                        ["docker", "image", "load", "--input", str(image)],
-                        check=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=600,
+                    (load or cli_load)(image)
+                    host_image = (
+                        loaded_image_id(manifest)
+                        if inspect is None
+                        else loaded_image_id(manifest, inspect)
                     )
-                    host_image = loaded_image_id(manifest)
                     release_id = f"ci-{run['id']}-{run['run_attempt']}"
                     for env in config.environments:
-                        operator_request(
+                        request(
                             root,
                             {
                                 "action": "release",
@@ -305,6 +319,15 @@ def sync(root, config):
         return state
 
 
+def record_failure(root, config, exc):
+    error = {"failed_at": time.time(), "error": type(exc).__name__}
+    if isinstance(exc, httpx.HTTPStatusError):
+        error["http_status"] = exc.response.status_code
+    directory = root / "release-sync" / config.application
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_write(directory / "error.json", error)
+
+
 def command(args):
     root = Path(args.state_dir).expanduser().resolve()
     config = Configuration.model_validate_json(Path(args.config_file).read_text())
@@ -314,12 +337,7 @@ def command(args):
         print("Release sync already running")
         return
     except Exception as exc:  # noqa: BLE001 -- never leak signed URLs or credentials
-        error = {"failed_at": time.time(), "error": type(exc).__name__}
-        if isinstance(exc, httpx.HTTPStatusError):
-            error["http_status"] = exc.response.status_code
-        directory = root / "release-sync" / config.application
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        private_write(directory / "error.json", error)
+        record_failure(root, config, exc)
         # Never print signed download URLs, API responses or credentials.
         raise SystemExit(
             "Release sync failed ("

@@ -183,7 +183,7 @@ class Engine:
                 pass
         return out
 
-    def logs(self, name):
+    def raw_logs(self, name, tail):
         data = self.inspect(name)
         if not data:
             raise ValueError("Container missing")
@@ -191,8 +191,8 @@ class Engine:
             self.get(
                 "/containers/"
                 + quote(data["Id"], safe="")
-                + "/logs?stdout=true&stderr=true&timestamps=true&tail=100",
-                limit=131072,
+                + f"/logs?stdout=true&stderr=true&timestamps=true&tail={int(tail)}",
+                limit=262144,
             )
             or b""
         )
@@ -205,6 +205,15 @@ class Engine:
                 chunks.append(raw[8 : 8 + size])
                 raw = raw[8 + size :]
             raw = b"".join(chunks)
+        return raw
+
+    def tail(self, name, lines):
+        """Bounded raw lines; callers must redact before returning them."""
+        text = self.raw_logs(name, lines).decode(errors="replace")
+        return [line[:2000] for line in text.splitlines()][-lines:]
+
+    def logs(self, name):
+        raw = self.raw_logs(name, 100)
         # Runtime output may contain whole conversations and shell commands. Only
         # emit recognized diagnostic categories, never arbitrary free-form lines.
         entries = []

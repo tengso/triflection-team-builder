@@ -66,12 +66,10 @@ def catalog(manager):
 
 def add_catalog(manager, value):
     entry = CatalogEntry.model_validate(value).model_dump()
-    from .runtime import DEPLOYMENT_SKILL
+    from .runtime import RESERVED_SKILLS
 
-    if entry["id"] == DEPLOYMENT_SKILL:
-        raise ValueError(
-            "This catalog ID is reserved for the built-in deployment skill"
-        )
+    if entry["id"] in RESERVED_SKILLS:
+        raise ValueError("This catalog ID is reserved for a built-in release skill")
     if entry["kind"] == "skill":
         if (
             not entry["content"].strip()

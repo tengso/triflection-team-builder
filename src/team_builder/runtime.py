@@ -45,6 +45,13 @@ HARNESSES = {
 
 
 DEPLOYMENT_SKILL = "team-deployments"
+RUNBOOK_SKILL = "team-release-runbook"
+RESERVED_SKILLS = {DEPLOYMENT_SKILL, RUNBOOK_SKILL}
+
+
+def release_agent(agent):
+    """Agents with deployment grants, or trusted to propose new applications."""
+    return bool(agent.get("deployments") or agent.get("release_agent"))
 
 
 def harness_of(agent):
@@ -108,13 +115,13 @@ def render(config, secrets, agent):
                     )
                     + (
                         ["mcp"]
-                        if coa or agent.get("mcp") or agent.get("deployments")
+                        if coa or agent.get("mcp") or release_agent(agent)
                         else ["no_mcp"]
                     )
                 },
             }
         )
-        if agent.get("deployments"):
+        if release_agent(agent):
             # Keep typed deployment schemas visible instead of routing through the
             # generic tool_call(name, arguments) bridge, which can lose arguments.
             document["tools"] = {"tool_search": {"enabled": "off"}}
@@ -197,7 +204,7 @@ def _finish(config, secrets, agent, document, harness_document, env, soul):
         if harness == "hermes"
         else harness_document["mcp_servers"]
     )
-    if agent.get("deployments"):
+    if release_agent(agent):
         from .deployments import token
 
         if harness == "pi":
@@ -215,10 +222,13 @@ def _finish(config, secrets, agent, document, harness_document, env, soul):
                 },
             }
             tools = "the deployments MCP tools"
+        scope = ", ".join(agent.get("deployments", [])) or (
+            "none yet; you may propose new applications"
+        )
         soul += (
-            f"\n\nProduction operations: use {tools} for these application/environment assignments: "
-            + ", ".join(agent["deployments"])
-            + ". Inspect release automation first. An enabled operator release policy authorizes the manager to deploy, verify UAT and promote automatically. In that mode, monitor the automatic run and investigate technical failures without requesting routine owner approval; use retry_automatic_release only after fixing the cause. You cannot define policy or certify UAT by assertion. Ask the owner in plain language only for missing credentials or decisions outside policy. Without an enabled policy, execute only a specific signed owner instruction or owner-approved frozen proposal. Queueing is not success: poll the operation until terminal. Production runs on the host separately from this workspace. Never use your terminal to deploy production, change databases, or acquire Docker access. Releases must first be registered by the local operator or trusted CI importer. Use list_environment_profiles and check_deployment_preflight before planning. For configuration repair, use plan_environment_configuration with an existing profile and release for one owner-approved combined deployment. Never request secret values in chat. Missing named credentials require the local operator; configuration selection and preflight do not require COA. TCP checks establish reachability only, not database authorization or schema correctness."
+            f"\n\nRelease operations: you are a release agent. Use {tools}; your application/environment scope: "
+            + scope
+            + ". Follow the team-managed-team-release-runbook skill. You do the technical release work: propose application registration, profiles, generated credentials, dependency attachments, access grants, CI import settings and release policies with propose_configuration_change, and after the owner replies approve, execute them with approve_configuration_change. Under an enabled release policy the manager deploys, verifies UAT and promotes automatically: investigate blocked runs with inspect_release_automation, masked check output and get_service_logs(detail=redacted), fix causes (code fixes arrive as new CI releases), confirm with verify_release_checks, then retry_automatic_release; the production agent may rollback_production when the policy allows. Without a policy, execute only an owner-approved frozen proposal or a specific signed owner instruction. Queueing is not success: poll until terminal. Never request or accept secret values in chat: tell the owner which credential is missing and the exact host command. Never use your terminal to deploy, change databases or reach Docker; no migrations. TCP preflight proves reachability only, not database authorization or schema correctness."
         )
     if agent.get("soul"):
         soul += "\n\nPersonality and communication:\n" + agent["soul"]
@@ -348,8 +358,8 @@ def _write_agent_files(root, config, secrets, agent):
     for path in (directory, managed, home, work):
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chown(path, 10000, 10000)
-    cli_agent = bool(agent.get("deployments")) and harness_of(agent) == "pi"
-    if agent.get("deployments") and not cli_agent:
+    cli_agent = release_agent(agent) and harness_of(agent) == "pi"
+    if release_agent(agent) and not cli_agent:
         private_write(
             managed / "deployment_mcp.py",
             files("team_builder").joinpath("resources/deployment_mcp.py").read_bytes(),
@@ -367,10 +377,14 @@ def _write_agent_files(root, config, secrets, agent):
         private_write(
             managed / "deployment-token", token(secrets, agent["id"]).encode()
         )
-        skills[DEPLOYMENT_SKILL] = skill(agent["deployments"])
+        skills[DEPLOYMENT_SKILL] = skill(agent.get("deployments", []))
     else:
         (managed / "deployment_cli.py").unlink(missing_ok=True)
         (managed / "deployment-token").unlink(missing_ok=True)
+    if release_agent(agent):
+        from .agent_deployments import runbook
+
+        skills[RUNBOOK_SKILL] = runbook(agent.get("deployments", []), cli=cli_agent)
     if agent["id"] == "coa":
         # Ship the current typed MCP facade in the read-only managed bundle so
         # manager-only upgrades can expose new tools without replacing workers.

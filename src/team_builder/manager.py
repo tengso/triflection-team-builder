@@ -8,7 +8,7 @@ from threading import RLock
 from .buzz import Buzz, policy
 from .community import configure_provider, invite, project
 from .docker import Docker
-from .models import validate
+from .models import RELEASE_CHANGES, validate
 from .nostr import attestation, key, public, reply_tags, sign, tags, wire
 from .repositories import link_github_repository
 from .runtime import start_agent
@@ -261,6 +261,8 @@ class Manager:
             return self.deployments.grant(
                 **{k: v for k, v in op.items() if k != "action"}
             )
+        if action in RELEASE_CHANGES or action == "configure_release_agent":
+            return self.deployments.apply_change(op)
         if action in ("configure_agent", "apply_agent_config"):
             from .agent_config import apply_config, configure
 
@@ -504,8 +506,14 @@ class Manager:
         if row:
             event = json.loads(row[0])
         else:
+            heading = (
+                "Proposed release configuration changes"
+                if all(op["action"] in RELEASE_CHANGES for op in operations)
+                else "Proposed team changes"
+            )
             text = (
-                "Proposed team changes:\n```json\n"
+                heading
+                + ":\n```json\n"
                 + json.dumps(operations, indent=2)
                 + "\n```\nReply `approve` to this message to authorize exactly these changes."
             )
@@ -637,6 +645,8 @@ class Manager:
                         "channel_ids",
                         "model",
                         "github_credential",
+                        "deployments",
+                        "release_agent",
                     )
                 }
             )

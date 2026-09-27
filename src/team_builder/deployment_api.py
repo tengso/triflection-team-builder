@@ -30,6 +30,12 @@ def handle(manager, path, authorization, body):
             "configure": service.profiles.plan,
             "automation-policy": service.automation.configure,
             "automation-status": service.automation.status,
+            "attach": lambda **kw: service.apply_change(
+                {"action": "attach_dependency", **kw}
+            ),
+            "release-sync-config": lambda **kw: service.apply_change(
+                {"action": "configure_release_sync", **kw}
+            ),
         }
         if action not in methods:
             raise ValueError("Unknown operator action")
@@ -44,13 +50,15 @@ def handle(manager, path, authorization, body):
         )
     ):
         raise ValueError("Deployment agent authentication required")
+    action = body.pop("action")
+    if action in ("propose-change", "approve-change"):
+        return change(manager, agent, action, body)
     application, environment = (
         body.pop("application"),
         body.pop("environment", "production"),
     )
     key = service.key(application, environment)
     service.authorized(agent, key)
-    action = body.pop("action")
     if action == "inspect":
         snapshot = service.read()
         return {
@@ -80,6 +88,12 @@ def handle(manager, path, authorization, body):
         return service.automation.status(application, environment)
     if action == "automation-retry":
         return service.automation.retry(application, environment, agent)
+    if action == "automation-verify":
+        return service.automation.verify(application, environment, agent)
+    if action == "automation-rollback":
+        if environment != "production":
+            raise ValueError("Automatic rollback applies to production")
+        return service.automation.rollback(application, agent)
     if action == "profiles":
         return service.profiles.list(application, environment)
     if action == "preflight":
@@ -87,7 +101,15 @@ def handle(manager, path, authorization, body):
     if action == "configure":
         return service.profiles.plan(application, environment, **body)
     if action == "logs":
-        return service.logs(application, environment, **body)
+        detail = body.pop("detail", None) or "summary"
+        if detail not in ("summary", "redacted"):
+            raise ValueError("Log detail must be summary or redacted")
+        if (
+            detail == "redacted"
+            and service.diagnostics(application, environment) != "redacted"
+        ):
+            raise ValueError("The release policy limits this environment to summaries")
+        return service.logs(application, environment, detail=detail, **body)
     if action == "plan":
         return service.plan(
             application, environment, action=body.pop("action_type", "deploy"), **body
@@ -150,3 +172,46 @@ def handle(manager, path, authorization, body):
                 raise ValueError("Proposal outside assigned scope")
             return manager.approve(approval_event_id=body["approval_event_id"])
     raise ValueError("Unknown deployment action")
+
+
+def change(manager, agent, action, body):
+    """Agent-authored release setup: frozen proposal, owner approval, manager execution."""
+    from .models import RELEASE_CHANGES, validate
+    from .release_changes import check_scope
+
+    service = manager.deployments
+    with manager.lock:
+        if action == "propose-change":
+            operations = check_scope(service, agent, validate(body["operations"]))
+            source = manager.source(body["source_event_id"])
+            if (
+                tags(source, "h")[0][0]
+                not in manager.resource(agent, "agent")["channel_ids"]
+            ):
+                raise ValueError("Source message outside agent channels")
+            return manager.propose(body["source_event_id"], operations, proposer=agent)
+        approval = manager.source(body["approval_event_id"], owner=True)
+        replies = [r[0] for r in tags(approval, "e") if len(r) >= 3 and r[2] == "reply"]
+        if len(replies) != 1:
+            raise ValueError("Reply approve to the frozen change proposal")
+        row = manager.registry.db.execute(
+            "SELECT body,event FROM proposals WHERE json_extract(event,'$.id')=?",
+            (replies[0],),
+        ).fetchone()
+        member = manager.resource(agent, "agent")
+        channel = tags(approval, "h")[0][0]
+        authoritative = manager.buzz.channel(channel)
+        if (
+            not row
+            or json.loads(row["event"]).get("pubkey") != member["pubkey"]
+            or channel not in member["channel_ids"]
+            or not authoritative
+            or member["pubkey"] not in authoritative["roles"]
+        ):
+            raise ValueError(
+                "Approval must target this agent's proposal in its channel"
+            )
+        # Scope was enforced when the frozen proposal was published.
+        if any(op["action"] not in RELEASE_CHANGES for op in json.loads(row["body"])):
+            raise ValueError("Not a release configuration proposal")
+        return manager.approve(approval_event_id=body["approval_event_id"])

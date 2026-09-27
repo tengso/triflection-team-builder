@@ -26,7 +26,7 @@ def test_cli_matches_mcp_tools(mcp_module):
         name
         for name, value in vars(mcp_module).items()
         if inspect.isfunction(value) and value.__module__ == mcp_module.__name__
-    } - {"call"}
+    } - {"call", "post"}
     assert functions == set(TOOLS)
     for tool, (_, params, _, _) in TOOLS.items():
         signature = inspect.signature(getattr(mcp_module, tool)).parameters

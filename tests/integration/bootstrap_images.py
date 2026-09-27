@@ -230,6 +230,26 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stdout + result.stderr)
                 print(result.stdout, flush=True)
+            if os.environ.get("EXERCISE_AGENT_SETUP") == "1":
+                script = Path(__file__).with_name("agent_setup.py").read_text()
+                script += "\nexercise(" + repr(owner.read_text().strip()) + ")\n"
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        "-i",
+                        before["project"] + "-manager-1",
+                        "/opt/hermes/.venv/bin/python",
+                        "-",
+                    ],
+                    check=False,
+                    input=script,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode:
+                    raise RuntimeError(result.stdout + result.stderr)
+                print(result.stdout, flush=True)
             if os.environ.get("EXERCISE_MANAGEMENT") == "1":
                 script = Path(__file__).with_name("community_operations.py").read_text()
                 script += "\nexercise(" + repr(owner.read_text()) + ")\n"

@@ -368,3 +368,25 @@ deployment proposals without COA membership, and community management before
 promoting the `0.7.0` tags. All five release tags were verified for anonymous
 pulls. The installer pins these digests, including the harness images for lazy
 use on first agent start.
+
+## v0.8.0 pre-release validation — agent-led releases
+
+- 246 unit tests passed; Ruff check and format passed. New tests cover agent
+  proposals through the real signature and approval checks, proposal scope,
+  dependency-attachment guards, the manager-run CI importer, diagnostics gating,
+  masked check output, on-demand verification with rate limiting, the three
+  rollback modes, owner notices with host commands, p-tagged release notices,
+  and the runbook/reserved skills.
+- `sandbox2` (`bootstrap_images.py` with local images, `EXERCISE_AGENT_SETUP=1`,
+  `EXERCISE_MANAGEMENT=1`): all PASS lines. A release agent's proposal was
+  published through the relay under the agent's identity; nothing changed before
+  the owner's `approve` reply; approval registered both environments, generated a
+  credential, registered a profile, attached a third-party Redis container as the
+  `ledger-db` dependency and granted access. Preflight reached the dependency,
+  restored the attachment after it was disconnected, and exec output capture
+  returned the exit code and output from a managed container. Management checks
+  passed in the same run.
+- The model-driven check that an agent-signed, p-tagged notice wakes another
+  buzz-acp agent (`harnesses.py`) could not run: the VM lost outbound HTTPS.
+  Owner mentions, which use the same p-tag dispatch, passed in every earlier live
+  harness run. The release workflow now also runs the agent-setup exercise.

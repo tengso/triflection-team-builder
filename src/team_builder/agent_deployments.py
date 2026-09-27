@@ -35,8 +35,13 @@ TOOLS = {
     ),
     "get_service_logs": (
         "logs",
-        [("application", REQUIRED), ("service", REQUIRED), ENVIRONMENT],
-        "Bounded sanitized service diagnostics.",
+        [
+            ("application", REQUIRED),
+            ("service", REQUIRED),
+            ENVIRONMENT,
+            ("detail", "summary"),
+        ],
+        "Service diagnostics: --detail summary (recognized entries) or redacted (last 200 lines, secrets masked).",
         {},
     ),
     "plan_deployment": (
@@ -121,7 +126,32 @@ TOOLS = {
         "After fixing a technical blocker, retry your assigned blocked stage under the existing policy (maximum two retries).",
         {},
     ),
+    "verify_release_checks": (
+        "automation-verify",
+        [("application", REQUIRED), ENVIRONMENT],
+        "Run the policy's acceptance checks now (once a minute); no deploy, no retry spent. Failed checks include masked output.",
+        {},
+    ),
+    "rollback_production": (
+        "automation-rollback",
+        [("application", REQUIRED), ENVIRONMENT],
+        "Production agent: restore the previous release after a blocked run, if the policy allows. Images only.",
+        {},
+    ),
+    "propose_configuration_change": (
+        "propose-change",
+        [("source_event_id", REQUIRED), ("operations", REQUIRED)],
+        "Publish a frozen release-setup proposal (JSON list of operations) for owner approval. Never include secret values.",
+        {},
+    ),
+    "approve_configuration_change": (
+        "approve-change",
+        [("approval_event_id", REQUIRED)],
+        "Execute exactly the frozen configuration proposal the owner replied approve to.",
+        {},
+    ),
 }
+JSON_PARAMS = {"operations"}
 
 
 COMMANDS = {
@@ -138,6 +168,10 @@ COMMANDS = {
     "plan_environment_configuration": "plan-configuration",
     "inspect_release_automation": "automation-status",
     "retry_automatic_release": "automation-retry",
+    "verify_release_checks": "verify",
+    "rollback_production": "rollback",
+    "propose_configuration_change": "propose-change",
+    "approve_configuration_change": "approve-change",
 }
 
 
@@ -159,8 +193,9 @@ def parser():
         command = sub.add_parser(command_name(tool), help=description)
         command.set_defaults(tool=tool)
         for name, default in params:
+            kind = json.loads if name in JSON_PARAMS else str
             if default is REQUIRED:
-                command.add_argument(option(name), dest=name, required=True)
+                command.add_argument(option(name), dest=name, required=True, type=kind)
             else:
                 command.add_argument(option(name), dest=name, default=default)
     return root
@@ -211,7 +246,9 @@ def skill(assignments):
         "---",
         "# Deployment CLI",
         "",
-        "Assigned application/environment pairs: " + ", ".join(assignments) + ".",
+        "Assigned application/environment pairs: "
+        + (", ".join(assignments) or "none yet (release agent)")
+        + ".",
         "Run every command as `python /run/team/deployment_cli.py <command> ...`.",
         "Output is JSON on stdout; a rejection exits 1 with the reason on stderr.",
         "",
@@ -244,6 +281,90 @@ def skill(assignments):
         "- Releases are registered by the operator; you cannot add images. Never deploy, touch databases, or seek Docker access from your terminal.",
     ]
     return "\n".join(lines) + "\n"
+
+
+def runbook(assignments, cli=False):
+    """Managed SKILL.md: the release agent's operating procedure (all harnesses)."""
+    scope = ", ".join(assignments) or "no application yet (release agent)"
+    tools = (
+        "Tool names below map to deployment CLI commands (see the "
+        "team-managed-team-deployments skill)."
+        if cli
+        else "Tool names below are your deployments MCP tools."
+    )
+    return f"""---
+name: team-managed-team-release-runbook
+description: Set up, release, investigate and recover assigned applications as a release agent
+---
+# Release runbook
+
+Your deployment scope: {scope}. UAT is environment `staging`. {tools}
+
+## Division of work
+
+Release agents do the technical release work. The owner only replies `approve`
+to your frozen proposals and supplies secret values (database passwords, login
+files, GitHub tokens) on the host. Never ask for or accept secret values in chat.
+The manager validates and executes everything; queued is not success.
+
+## Set up a new application
+
+1. Read the application repository: service commands, ports, health endpoints
+   (the image must contain `python` for health checks), data paths and required
+   environment variables.
+2. Call `propose_configuration_change` once with every operation needed:
+   - `register_application` for `staging` and `production`
+     (`spec`: id, environment, repository `owner/name`, services with id,
+     command, port, optional host_port, health_path, optional health_token_env,
+     data_path, memory_mb and non-secret environment).
+   - `generate_credential` for generated secrets such as API tokens.
+   - `register_profile` per environment: `values`, `secrets` (env var ->
+     credential id), `files` (target under /app/config -> credential id),
+     `required_env`, `connections` (dependency host/port for preflight).
+   - `attach_dependency` for existing database containers, using the DNS alias
+     your profile connects to.
+   - `configure_deployment_access` for the UAT agent (staging) and the
+     production agent (production).
+   - `configure_release_sync`: repository, the stored GitHub credential name,
+     workflow file, branch and services built from the one CI image.
+3. Tell the owner exactly which supplied credentials are still missing, with the
+   host command: `echo '{{"action":"credential","application":"APP","environment":"ENV","id":"ID"}}' > ID.json && team-builder deployment ID.json --secret-file /path/to/ID`.
+4. In the repository (development agent): add the CI release workflow and image
+   smoke test, and an `acceptance` entrypoint with read-only, repeatable checks
+   (`{{environment}}` in the policy command is replaced with staging/production).
+   Merged code is the trust boundary: open a pull request and ask for review.
+5. When `check_deployment_preflight` passes in both environments, propose
+   `configure_release_policy` with `enabled: true`, both agents, the profiles,
+   checks calling the acceptance entrypoint, the shared notification channel,
+   `production_rollback` and the diagnostics settings.
+6. When the owner replies `approve`, call `approve_configuration_change`
+   (deployment plans: `approve_deployment`) with that reply's Event ID.
+
+## When a notice mentions you
+
+1. `inspect_release_automation`: blocked stage, reason, failed checks and their
+   masked output.
+2. `get_service_logs` with `detail="redacted"` and `check_deployment_preflight`.
+3. Decide:
+   - Code or test defect (UAT agent): fix it in the repository and open a pull
+     request. After merge, CI publishes a new release that the policy picks up;
+     do not retry the broken release.
+   - Wrong configuration: propose a new profile ID and the policy change.
+   - Dependency unreachable: check attachments; propose `attach_dependency`.
+   - Transient failure: `verify_release_checks`; if it passes,
+     `retry_automatic_release` (at most two retries per run).
+   - Missing supplied secret: tell the owner which one and the command above.
+4. Production checks failed (production agent): if the previous release was
+   healthy, `rollback_production` first, then investigate with the UAT agent.
+5. Report in the notification channel: what failed, the evidence, the action
+   taken and the next step.
+
+## Rules
+
+- Never deploy, change databases or use Docker from your terminal; no migrations.
+- Masked logs can still contain application data: summarize, never repost it.
+- Owner approval covers exactly the frozen proposal; propose again for changes.
+"""
 
 
 if __name__ == "__main__":

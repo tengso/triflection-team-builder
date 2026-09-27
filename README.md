@@ -18,7 +18,7 @@ image IDs. It does not need Rust, a Hermes checkout, or a local Docker build.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.7.0/buzz_team_builder-0.7.0-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.0/buzz_team_builder-0.8.0-py3-none-any.whl'
 team-builder init \
   --bind 0.0.0.0 \
   --port 3100
@@ -286,6 +286,11 @@ bundles take effect on each agent's next gateway restart. After a restart the
 buzz-acp gateway opens a fresh agent session and feeds it recent channel
 history; workspaces, skills and Buzz conversations are preserved.
 
+**Upgrading to 0.8.0 from 0.7.x** needs only `team-builder upgrade --manager-only`:
+the new release tools and runbook skill ship in each agent's managed bundle,
+which the restarted manager rewrites before restarting only affected gateways;
+worker containers and detached app servers are retained. A full `upgrade` also works.
+
 **Upgrading to 0.7.0 from 0.6.x** moves every agent from the Hermes-native Buzz
 adapter to `buzz-acp`. Run a full `team-builder upgrade` (not `--manager-only`,
 which is refused while workers still run a pre-0.7.0 runtime): all agent
@@ -506,7 +511,7 @@ Mission Control → **Deployments** shows health, releases, persistent operation
 and sanitized diagnostic logs with local timestamps. Deployment actions and agent
 access assignment currently use the CLI or Buzz rather than dashboard controls.
 
-Start with the [UAT and production deployment user guide](docs/application-deployment-guide.md) for one-time setup, agent-led releases, approvals, and troubleshooting. It uses HTI Research Admin as a worked example.
+Start with the [UAT and production deployment user guide](docs/application-deployment-guide.md) for agent-led setup, automatic releases, approvals, and troubleshooting. Release agents (for example Cody for UAT and Oppo for production) propose application registrations, profiles, dependency attachments, CI import settings, grants and release policies for one-reply owner approval, and investigate, verify, retry and roll back automatic releases; the operator only supplies secret values. It uses HTI Research Admin as a worked example.
 
 See the [deployment service guide](docs/deployments.md) for architecture,
 [agent assignment and revocation](docs/deployments.md#assign-a-selected-agent),

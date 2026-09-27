@@ -1,15 +1,21 @@
 # Deploy applications to UAT and production
 
-Use Team Builder to run applications in their own Docker containers, with an
-assigned agent handling release planning and monitoring. An enabled release
-policy automates routine releases; without it, the owner approves each rollout in Buzz. Application containers keep running when an agent restarts.
+Use Team Builder to run applications in their own Docker containers, with
+release agents doing the technical work: **Cody** (development, UAT) sets the
+application up and fixes it, **Oppo** (operations, production) runs production.
+The owner approves their proposals with one reply; the operator only supplies
+secret values on the host. An enabled release policy automates routine releases;
+without it, the owner approves each rollout in Buzz. Application containers keep
+running when an agent restarts.
 
 This guide uses **HTI Research Admin** as its example. Replace its repository,
 service commands, settings, and dependencies with those of your application.
 COA does not need to join release channels or operate deployments.
 
-> **Version requirement:** use Team Builder v0.6.0 or newer for both the CLI and
-> manager/agent runtime images. Install the wheel linked in the
+> **Version requirement:** agent-led setup, manager-run CI imports, masked
+> diagnostics, on-demand verification and policy rollback need Team Builder
+> v0.8.0 or newer for both the CLI and the manager/agent runtime images;
+> the manual steps work from v0.6.0. Install the wheel linked in the
 > [README](../README.md), then follow the
 > [upgrade instructions](../README.md#upgrade-an-existing-installation).
 > Existing installations must enable a standing release policy explicitly;
@@ -17,15 +23,18 @@ COA does not need to join release channels or operate deployments.
 
 ## Start here
 
+- **New application?** Let the agents do it: [Agent-led setup](#agent-led-setup-recommended).
 - **Want minimal owner work?** Enable [automatic releases](#automatic-releases-recommended) once.
 - **Using manual approvals?** Go to [Deploy to UAT](#deploy-to-uat), then
   [Promote to production](#promote-to-production).
-- **New application or host?** Complete [One-time setup](#one-time-setup) first.
+- **Doing setup by hand?** Use [Manual operator setup](#manual-operator-setup-alternative).
 - **Deployment failed?** Use [Troubleshooting](#troubleshooting).
 
 For the HTI installation on `myresearch` prepared on 26 September 2026, both environments have
 an application registration, release access, and a `standard-v1` profile. Do not
-repeat setup just to deploy another release.
+repeat setup just to deploy another release. To move its host-timer importer into
+the manager, ask Cody to propose `configure_release_sync` with the same settings,
+then disable the systemd timer.
 
 ## Understand the four pieces
 
@@ -43,9 +52,11 @@ mutable image tag such as `latest`.
 
 | Responsibility | Who handles it |
 | --- | --- |
-| Initial service specification, credentials, database networking, CI importer and access grants | Host owner/operator, once per application/environment |
-| Application development and UAT investigation | Assigned development agent; Cody in this example |
-| Production release monitoring and investigation | Assigned release agent; Oppo in this example |
+| Service specification, profiles, generated credentials, database attachment, CI import, access grants and release policy | Cody proposes, the owner replies `approve`, Cody executes |
+| Supplied secrets (database passwords, login files, GitHub token) | Operator, on the host, when an agent names the missing credential |
+| CI release workflow, smoke test and acceptance checks in the repository | Cody, through reviewed pull requests |
+| UAT investigation and fixes | Cody |
+| Production monitoring, investigation and rollback | Oppo |
 | Routine deployment authorization and acceptance | Standing release policy and automated checks; owner approval only when that policy is disabled or a change is outside its scope |
 | Container deployment, health checks and operation history | Team Builder manager |
 | Visibility into releases, services, checks and failures | Mission Control → Deployments |
@@ -55,28 +66,72 @@ one agent both environments. This example keeps their responsibilities separate.
 
 ## Automatic releases (recommended)
 
-After the one-time setup below, the operator can enable a standing release policy.
-The owner then needs no technical deployment instructions or routine approval
-replies. Trusted CI registers a release; the manager runs UAT, records acceptance
+After setup, Cody proposes a standing release policy and the owner approves it
+once (the operator can also register it directly). The owner then needs no
+technical deployment instructions or routine approval replies. Trusted CI registers a release; the manager runs UAT, records acceptance
 results, and promotes the exact same images to production. Cody investigates UAT
 failures and Oppo investigates production failures. COA stays out of the workflow.
 
-Ask the person configuring the host to follow [automatic release setup](deployments.md#automatic-uat-acceptance-and-production-promotion).
-For HTI, the included policy checks the UI, authenticated API, database read access
+Policy fields are described in [automatic release setup](deployments.md#automatic-uat-acceptance-and-production-promotion).
+Prefer acceptance checks that live in the repository (e.g. `python -m acceptance
+--environment {environment}`), maintained by Cody through reviewed pull requests.
+For HTI, the included example policy checks the UI, authenticated API, database read access
 and login configuration in both environments. These checks can be extended for
 other applications. They do not replace all possible human product acceptance.
 
 Watch **Mission Control → Deployments → Automatic releases**. A successful run
-means its configured UAT and production checks passed. The agents handle technical
-investigation and bounded retries; the owner is asked for missing credentials or
-an actual decision outside the agreed policy. Credentials still go through private
-host setup, never a chat message.
+means its configured UAT and production checks passed. When a stage blocks, the
+responsible agent is notified in the notification channel and investigates with
+the masked output of the failed checks and masked service logs. Cody fixes
+defects in the repository (the fix arrives as a new CI release), confirms with an
+on-demand check run and retries at most twice per run; Oppo can restore the
+previous production release when the policy allows. The owner is asked only for
+a missing supplied credential — with the exact host command — or an actual
+decision outside the agreed policy. Credentials go through private host setup,
+never a chat message.
 
 The manual UAT and production instructions later in this guide remain available
 for installations that have not enabled automation. They are not required for
 routine releases under an enabled policy.
 
-## One-time setup
+## Agent-led setup (recommended)
+
+1. **Owner, in Office Of COA (once):** create the agents if needed, then
+   > Make Cody a release agent. Create a channel "Production Operations" with
+   > Cody, Oppo and me.
+
+   A release agent may propose new applications; Oppo gets its grant through
+   Cody's proposal.
+2. **Operator, on the host (once):** store a GitHub token that can read the
+   repository and its Actions artifacts, unless one is already stored:
+   `team-builder github-credential github-release-reader`.
+3. **Owner, in Cody's channel:**
+   > @Cody Set up `hti-research-admin` from `tengso/hti-research-admin` for UAT
+   > and production. You operate staging, Oppo operates production. The MySQL
+   > containers are `db-uat-mysql-1` and `db-prod-mysql-1`. Use the stored
+   > GitHub credential `github-release-reader`.
+
+   Cody reads the repository and publishes **one frozen proposal**: both
+   application registrations, generated API tokens, a profile per environment,
+   database attachments, grants for Cody (staging) and Oppo (production), and
+   the CI import settings. Review it and reply `approve` directly to it; Cody
+   then executes it.
+4. **Operator, on the host:** Cody lists the supplied secrets that are still
+   missing (for HTI: the database passwords and the login files), each with its
+   exact `team-builder deployment … --secret-file …` command. Run those; nothing
+   else is needed on the host.
+5. **Cody, in the repository:** adds the CI release workflow, the image smoke
+   test and an `acceptance` entrypoint through a pull request. After merge, CI
+   publishes the first release and the manager imports it within minutes.
+6. **Cody:** when preflight passes in both environments, proposes the release
+   policy (checks calling the acceptance entrypoint, both agents, the
+   notification channel, rollback and diagnostics settings). Reply `approve`.
+
+From then on every merge to `main` flows to UAT and production automatically
+(next section). Everything Cody proposes is validated by the manager and visible
+in Mission Control; the manual steps below produce the same state.
+
+## Manual operator setup (alternative)
 
 Run host commands on the **Linux machine running Team Builder and Docker**, using
 the installation owner's account. For the example:
@@ -350,9 +405,10 @@ in both environments. Importing alone does not deploy it; an enabled standing po
    team-builder release-sync "$PWD/release-sync.json"
    ```
 
-4. Install the [polling service and timer](deployments.md#one-time-host-setup),
-   adjusting its configuration path and executable path to yours. Without the
-   timer, run `release-sync` manually after each successful build.
+4. Let the manager poll for new releases: submit the same settings as
+   `{"action": "release-sync-config", ...}` with `team-builder deployment`, or
+   have Cody propose `configure_release_sync`. A [host timer](deployments.md#one-time-setup)
+   remains an alternative.
 5. Check Mission Control for a registered `ci-<run_id>-<attempt>` release in each
    environment. If no release is registered, do not ask an agent to deploy it yet.
 
@@ -376,9 +432,9 @@ Cody should inspect the release and profile, check prerequisites, freeze a plan,
 and publish a proposal. Review its environment, release, services, profile and
 credential references. Then **reply `approve` directly to the published proposal**.
 
-Do not reply to a later summary, an older proposal or an unrelated thread.
-`/approve` is a different command used for agent shell-command approvals; use
-plain `approve` for a deployment proposal.
+Do not reply to a later summary, an older proposal or an unrelated thread. Reply
+with plain `approve` (or the Buzz app's `@Cody approve`); since v0.7.0 there is no
+separate `/approve` command.
 
 Follow Mission Control → **Deployments → hti-research-admin / staging** until:
 
@@ -462,12 +518,14 @@ proposal using the profile, even if its name has not changed.
 | --- | --- |
 | No registered releases | Check the CI workflow and importer. Repository linking and application registration do not register releases. |
 | Missing `CRM_REST_TOKEN` | For HTI, verify `api-token` is provisioned in that environment and mapped by the selected profile. Deploy the profile and release together; a restart will not add the variable. |
-| Failed credential or file preflight | The operator provisions the missing named reference or corrects the profile. The agent reruns preflight. |
-| Failed MySQL TCP check | Check network attachment, DNS alias and port. No application containers have been replaced by the failed preflight. |
+| Failed credential or file preflight | The agent names the missing supplied credential with the exact host command for the operator, or proposes a corrected profile; generated credentials it proposes itself. Then it reruns preflight. |
+| Failed MySQL TCP check | The agent checks the recorded attachment, DNS alias and port and proposes `attach_dependency` if needed. No application containers have been replaced by the failed preflight. |
 | Database access denied or missing table | Investigate database credentials, grants or schema with the database operator. TCP success does not validate them. |
 | Login succeeds but access is denied | Verify the application's user-role mapping; a valid login file does not grant database-backed roles. |
 | Approval rejected | Reply to the exact current proposal as the owner. Changed credentials/configuration or an intervening operation require a new plan. |
-| Proposal cannot be published | Verify the assigned agent and owner are members of the proposal channel and the agent has the exact application/environment grant. COA does not need to join. |
+| Proposal cannot be published | Verify the agent and owner are members of the proposal channel and the agent has the exact application/environment grant (or is a release agent, for a new application). COA does not need to join. |
+| Automatic run blocked, agent silent | Check the policy has a `notification_channel` containing both agents, and that the agents run v0.8.0 or newer (0.7.0 notices did not wake buzz-acp agents). Mention the agent to prompt it. |
+| Production checks failed after promotion | Oppo inspects the masked check output; with `production_rollback: agent` it restores the previous release, with `automatic` the manager already did. |
 | Agent says required tool arguments are missing | Start a fresh thread and verify its current deployment tools. Do not repeatedly approve or retry an empty tool call. |
 | Running but unhealthy | Inspect the dashboard readiness reason and logs. Running is not ready; the application may still lack valid configuration or dependencies. |
 | Failed first deployment, no previous release | There is no previous image to restore. Failed containers may remain. Correct the cause and approve a new plan. |
@@ -489,9 +547,10 @@ team-builder deployment inspect.json
 The operator CLI returns all application scopes for this installation. In Buzz,
 the assigned agent's inspection is restricted to its grants. Mission Control
 shows timestamps, profiles, preflight results, releases, service health and
-operation history. Sanitized logs may omit the detail needed for an application
-bug; an operator may need to inspect raw logs privately. Do not paste credentials
-or raw configuration into a channel.
+operation history. Assigned agents can read the last 200 log lines with secrets
+masked (`detail="redacted"`) in staging, and in production when the release
+policy's `production_diagnostics` is `redacted`. Masked logs can still contain
+application data. Do not paste credentials or raw configuration into a channel.
 
 ## A release is complete when
 

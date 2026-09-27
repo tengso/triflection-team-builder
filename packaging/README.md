@@ -25,7 +25,7 @@ builder code. All agents and the manager use the same Hermes runtime image.
 Run the **Publish images** workflow with a new semantic version:
 
 ```sh
-gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.7.0
+gh workflow run publish-images.yml --repo tengso/triflection-team-builder -f version=0.8.0
 ```
 
 The workflow downloads the exact upstream commits in `sources.json`, applies the

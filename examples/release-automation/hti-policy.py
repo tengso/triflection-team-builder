@@ -42,6 +42,11 @@ policy = {
     "staging_profile": "standard-v1",
     "production_profile": "standard-v1",
     "notification_channel": "production-operations",
+    # The production agent may restore the previous release after failed checks;
+    # both agents see masked output of failed checks and masked log tails.
+    "production_rollback": "agent",
+    "staging_diagnostics": "redacted",
+    "production_diagnostics": "redacted",
     "checks": [
         {
             "id": name,

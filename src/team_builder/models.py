@@ -186,6 +186,74 @@ class ConfigureDeploymentAccess(Operation):
     allowed: bool = True
 
 
+Environment = Literal["staging", "production"]
+
+
+class RegisterApplication(Operation):
+    """Register an immutable application service specification for one environment."""
+
+    action: Literal["register_application"]
+    spec: dict
+
+
+class RegisterProfile(Operation):
+    """Register an immutable environment profile: values and credential references only."""
+
+    action: Literal["register_profile"]
+    application: Slug
+    environment: Environment
+    profile: dict
+
+
+class GenerateCredential(Operation):
+    """Create a generated application credential; supplied values stay operator-only."""
+
+    action: Literal["generate_credential"]
+    application: Slug
+    environment: Environment
+    id: Slug
+    rotate: bool = False
+
+
+class AttachDependency(Operation):
+    """Attach an existing host container (for example a database) to an application network."""
+
+    action: Literal["attach_dependency"]
+    application: Slug
+    environment: Environment
+    container: Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")]
+    alias: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")]
+
+
+class ConfigureReleaseSync(Operation):
+    """Let the manager import verified CI releases for an application."""
+
+    action: Literal["configure_release_sync"]
+    application: Slug
+    repository: Annotated[str, Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]
+    credential: Slug
+    workflow: Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]+\.ya?ml$")] = "release.yml"
+    branch: Annotated[str, Field(pattern=r"^[a-zA-Z0-9_./-]+$")] = "main"
+    environments: list[Environment] = ["staging", "production"]
+    services: Annotated[list[Slug], Field(min_length=1, max_length=8)]
+    enabled: bool = True
+
+
+class ConfigureReleasePolicy(Operation):
+    """Register, change, enable or pause an automatic UAT/production release policy."""
+
+    action: Literal["configure_release_policy"]
+    policy: dict
+
+
+class ConfigureReleaseAgent(Operation):
+    """Give an agent deployment tools to propose new applications before any grant exists."""
+
+    action: Literal["configure_release_agent"]
+    agent: Slug
+    enabled: bool = True
+
+
 ManagementOperation = Annotated[
     CreateAgent
     | UpdateAgent
@@ -205,9 +273,26 @@ ManagementOperation = Annotated[
     | ConfigureProvider
     | ConfigureGitHubAccess
     | ExecuteDeployment
-    | ConfigureDeploymentAccess,
+    | ConfigureDeploymentAccess
+    | RegisterApplication
+    | RegisterProfile
+    | GenerateCredential
+    | AttachDependency
+    | ConfigureReleaseSync
+    | ConfigureReleasePolicy
+    | ConfigureReleaseAgent,
     Field(discriminator="action"),
 ]
+# Operations a release agent may propose (owner approval executes them).
+RELEASE_CHANGES = {
+    "register_application",
+    "register_profile",
+    "generate_credential",
+    "attach_dependency",
+    "configure_release_sync",
+    "configure_release_policy",
+    "configure_deployment_access",
+}
 Operations = TypeAdapter(list[ManagementOperation])
 
 

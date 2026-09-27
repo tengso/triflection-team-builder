@@ -145,6 +145,7 @@ jobs:
       - name: Verify published images and bootstrap
         env:
           EXERCISE_MANAGEMENT: "1"
+          EXERCISE_AGENT_SETUP: "1"
           BUZZ_IMAGE: ${{ env.IMAGE_ROOT }}/buzz@${{ steps.buzz.outputs.digest }}
           HERMES_IMAGE: ${{ env.IMAGE_ROOT }}/hermes@${{ steps.hermes.outputs.digest }}
           PI_IMAGE: ${{ env.IMAGE_ROOT }}/pi@${{ steps.pi.outputs.digest }}

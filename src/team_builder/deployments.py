@@ -394,8 +394,16 @@ class Deployments:
         path = self.root / (key.replace("/", "-") + ".secrets.json")
         return json.loads(path.read_text()) if path.exists() else {}
 
+    def apply_change(self, op):
+        from .release_changes import apply_change
+
+        return apply_change(self, op)
+
     def install(self, app, release):
         network = self.network(app)
+        from .release_changes import reattach
+
+        reattach(self, app)
         for service in app["spec"]["services"]:
             image = release["images"][service["id"]]
             if not self.docker.call(
@@ -773,24 +781,58 @@ class Deployments:
                 "collected_at": started,
             }
 
-    def logs(self, application, environment, service):
-        app = self.get("app/" + self.key(application, environment))
-        if service not in {s["id"] for s in app["spec"]["services"]}:
-            raise ValueError("Unknown application service")
-        from .dashboard_observe import Engine, Redactor
+    def redactor(self, app):
+        """Mask every installation secret plus this environment's credential values."""
+        from .dashboard_observe import Redactor
 
-        # Existing diagnostic allowlist excludes transcripts, payloads and arbitrary output.
         redactor = Redactor(self.manager.root)
-        redactor.values += [v for v in self.secret_values(app).values() if v]
-        redactor.values += [
+        values = [v for v in self.secret_values(app).values() if v]
+        values += [
             v
             for s in app["spec"]["services"]
             for v in s["environment"].values()
             if len(v) >= 4
         ]
+        for path in self.profiles.resolve(app)[2].values():
+            try:
+                content = path.read_text(errors="replace")
+            except OSError:
+                continue
+            values += [content] + [
+                line.strip() for line in content.splitlines() if len(line.strip()) >= 8
+            ]
+        redactor.values = sorted(
+            set(redactor.values) | {v for v in values if len(v) >= 4},
+            key=len,
+            reverse=True,
+        )
+        return redactor
+
+    def diagnostics(self, application, environment):
+        """Redacted output is allowed in staging; production follows the release policy."""
+        policy = self.db.get("automation-policy/" + application) or {}
+        default = "redacted" if environment == "staging" else "summary"
+        return policy.get(environment + "_diagnostics", default)
+
+    def logs(self, application, environment, service, detail="summary"):
+        app = self.get("app/" + self.key(application, environment))
+        if service not in {s["id"] for s in app["spec"]["services"]}:
+            raise ValueError("Unknown application service")
+        from .dashboard_observe import Engine
+
+        redactor = self.redactor(app)
         engine = Engine(self.manager.config["project"])
         try:
             self.inspect(app, service, engine)
+            if detail == "redacted":
+                return {
+                    "lines": [
+                        redactor.text(line)
+                        for line in engine.tail(self.name(app, service), 200)
+                    ],
+                    "note": "Last 200 log lines with installation and environment secrets masked. May contain application data.",
+                }
+            # Existing diagnostic allowlist excludes transcripts, payloads and arbitrary output.
             return {
                 "entries": redactor.clean(engine.logs(self.name(app, service))),
                 "note": "Last 100 log lines; recognized diagnostic summaries only. Request payloads, commands and unrecognized lines are excluded.",
@@ -825,5 +867,15 @@ class Deployments:
                     print("Deployment observations unavailable", flush=True)
                 self.stop.wait(5)
 
+        def importer():
+            from .release_changes import IMPORT_INTERVAL, import_releases
+
+            while not self.stop.wait(IMPORT_INTERVAL):
+                try:
+                    import_releases(self)
+                except Exception:  # noqa: BLE001 -- per-application failures are recorded
+                    print("Release import pending; retrying", flush=True)
+
         threading.Thread(target=worker, daemon=True).start()
         threading.Thread(target=observer, daemon=True).start()
+        threading.Thread(target=importer, daemon=True).start()

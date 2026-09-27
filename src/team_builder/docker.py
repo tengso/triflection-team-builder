@@ -112,6 +112,32 @@ class Docker:
             time.sleep(0.5)
         raise RuntimeError("Managed container command timed out")
 
+    def exec_output(self, name, command, timeout=60, limit=65536):
+        """Run a command and return (exit code, bounded output). Callers must redact."""
+        if not self.inspect(name):
+            raise RuntimeError("Managed container is missing")
+        created = self.call(
+            "POST",
+            f"/containers/{quote(name, safe='')}/exec",
+            json={"Cmd": command, "AttachStdout": True, "AttachStderr": True},
+        )
+        response = self.client.post(
+            f"/v1.45/exec/{created['Id']}/start",
+            json={"Detach": False, "Tty": False},
+            timeout=timeout,
+        )
+        if response.status_code != 200:
+            raise RuntimeError("Managed container command failed to start")
+        raw, chunks = response.content, []
+        # Non-TTY exec output is multiplexed into 8-byte-header frames.
+        while len(raw) >= 8:
+            size = int.from_bytes(raw[4:8], "big")
+            chunks.append(raw[8 : 8 + size])
+            raw = raw[8 + size :]
+        output = b"".join(chunks)[-limit:].decode(errors="replace")
+        status = self.call("GET", f"/exec/{created['Id']}/json")
+        return status.get("ExitCode"), output
+
     def ready(self, name):
         state = (self.inspect(name) or {}).get("State", {})
         return (

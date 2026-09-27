@@ -7,7 +7,7 @@ claim acceptance. Only the manager executes the frozen operator-defined checks.
 import json
 import re
 import time
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -20,8 +20,10 @@ from .storage import private_write
 class Check(Strict):
     id: Slug
     service: Slug
+    # "{environment}" is replaced with staging or production at run time, so one
+    # repository-owned entrypoint (e.g. python -m acceptance) serves both.
     command: Annotated[list[str], Field(min_length=1, max_length=32)]
-    timeout: Annotated[int, Field(ge=1, le=30)] = 20
+    timeout: Annotated[int, Field(ge=1, le=300)] = 20
 
 
 class Policy(Strict):
@@ -33,6 +35,16 @@ class Policy(Strict):
     production_profile: Slug
     notification_channel: Slug | None = None
     checks: Annotated[list[Check], Field(min_length=1, max_length=8)]
+    # agent: the production agent may restore the previous release after failed
+    # checks; automatic: the manager does so immediately; off: owner approval.
+    production_rollback: Literal["agent", "automatic", "off"] = "agent"
+    # redacted: assigned agents see masked check output and log tails.
+    staging_diagnostics: Literal["redacted", "summary"] = "redacted"
+    production_diagnostics: Literal["redacted", "summary"] = "redacted"
+
+
+VERIFY_INTERVAL = 60
+OUTPUT_LIMIT = 2000
 
 
 class Automation:
@@ -127,40 +139,71 @@ class Automation:
             "containers": containers,
         }
 
-    def check(self, app, check):
-        # Suppress all application output. Kill the process group on timeout so a
+    def check(self, app, check, environment):
+        # Keep only the output tail. Kill the process group on timeout so a
         # blocked acceptance program does not survive as an unbounded exec.
         script = """import subprocess,sys,os,signal,json
-p=subprocess.Popen(json.loads(sys.argv[1]),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+p=subprocess.Popen(json.loads(sys.argv[1]),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
 try:
-    code=p.wait(timeout=int(sys.argv[2]))
+    out,_=p.communicate(timeout=int(sys.argv[2]));code=p.returncode
 except subprocess.TimeoutExpired:
-    os.killpg(p.pid,signal.SIGKILL);p.wait();code=124
+    os.killpg(p.pid,signal.SIGKILL);out,_=p.communicate();code=124
+sys.stdout.buffer.write((out or b"")[-8000:])
 raise SystemExit(code)
 """
-        self.service.docker.exec(
+        command = [a.replace("{environment}", environment) for a in check["command"]]
+        return self.service.docker.exec_output(
             self.service.name(app, check["service"]),
-            [
-                "python",
-                "-c",
-                script,
-                json.dumps(check["command"]),
-                str(check["timeout"]),
-            ],
+            ["python", "-c", script, json.dumps(command), str(check["timeout"])],
+            timeout=check["timeout"] + 30,
         )
 
-    def acceptance(self, run, policy, environment):
-        app = self.service.get("app/" + run["application"] + "/" + environment)
+    def run_checks(self, application, policy, environment):
+        app = self.service.get("app/" + application + "/" + environment)
+        detail = policy.get(environment + "_diagnostics", "summary") == "redacted"
+        redactor = self.service.redactor(app) if detail else None
         results = []
         for check in policy["checks"]:
+            result = {"id": check["id"]}
             try:
-                self.check(app, check)
-                results.append({"id": check["id"], "passed": True})
-            except Exception:  # noqa: BLE001 -- never expose check output or credentials
-                results.append({"id": check["id"], "passed": False})
+                code, output = self.check(app, check, environment)
+                result.update(passed=code == 0, exit_code=code)
+            except Exception:  # noqa: BLE001 -- never expose Docker errors or credentials
+                code, output = None, ""
+                result.update(passed=False, exit_code=None)
+            if detail and not result["passed"]:
+                result["output"] = redactor.text(output)[-OUTPUT_LIMIT:]
+            results.append(result)
+        return results
+
+    def acceptance(self, run, policy, environment):
+        results = self.run_checks(run["application"], policy, environment)
         run[environment + "_checks"] = results
         self.save(run)
         return all(c["passed"] for c in results)
+
+    def verify(self, application, environment, agent):
+        """Run the policy's checks now, without deploying or spending a retry."""
+        policy, _ = self.policy(application)
+        if policy[environment + "_agent"] != agent:
+            raise ValueError("Only the assigned release agent may verify this scope")
+        key = "automation-verify/" + application + "/" + environment
+        with self.service.lock:
+            last = self.service.db.get(key)
+            if last and time.time() - last["checked_at"] < VERIFY_INTERVAL:
+                raise ValueError("Checks ran less than a minute ago; wait and retry")
+            record = {"checked_at": time.time()}
+            self.service.db.put(key, "automation_verify", record)
+        app = self.service.get("app/" + application + "/" + environment)
+        record.update(
+            application=application,
+            environment=environment,
+            release=app["current"],
+            checks=self.run_checks(application, policy, environment),
+        )
+        record["passed"] = all(c["passed"] for c in record["checks"])
+        self.service.put(key, "automation_verify", record)
+        return record
 
     def authorize_job(self, job):
         authority = job.get("automation")
@@ -239,20 +282,32 @@ raise SystemExit(code)
             run["application"], env, policy[env + "_profile"]
         )
         if not result["ready"]:
-            credential = any(
-                c["kind"] in ("credential", "required_file", "required_variable")
+            missing = [
+                c["id"]
+                for c in result["checks"]
+                if c["kind"] == "credential" and c["status"] == "failed"
+            ]
+            configuration = any(
+                c["kind"] in ("required_file", "required_variable")
                 and c["status"] == "failed"
                 for c in result["checks"]
             )
-            self.block(
-                run,
-                "Required configuration is missing"
-                if credential
-                else "A dependency is unavailable; the release agent should investigate",
-                "Please provide the missing application credential through the private operator setup."
-                if credential
-                else None,
-            )
+            if missing:
+                self.block(
+                    run,
+                    "Required credentials are missing: " + ", ".join(missing),
+                    owner_action(run["application"], env, missing),
+                )
+            elif configuration:
+                self.block(
+                    run,
+                    "Required configuration is missing; the release agent should propose a corrected profile",
+                )
+            else:
+                self.block(
+                    run,
+                    "A dependency is unavailable; the release agent should investigate",
+                )
             return
         job = self.queue(run, policy, env)
         if job["state"] in ("queued", "running"):
@@ -289,6 +344,11 @@ raise SystemExit(code)
                     run,
                     "Production acceptance checks failed; the release agent should investigate",
                 )
+                if policy.get("production_rollback") == "automatic":
+                    try:
+                        self.restore(run, policy[env + "_agent"])
+                    except ValueError:
+                        pass
                 return
             run.update(
                 state="succeeded",
@@ -325,6 +385,70 @@ raise SystemExit(code)
         self.save(run)
         return run
 
+    def latest_blocked(self, application, environment, public):
+        runs = self.status(application)["runs"]
+        run = runs[0] if runs else None
+        if (
+            not run
+            or run["stage"] != environment
+            or run["state"] != "blocked"
+            or run["policy"] != public["version"]
+        ):
+            raise ValueError("No blocked stage in this scope")
+        return run
+
+    def rollback(self, application, agent):
+        """Production agent restores the previous release after a failed stage."""
+        policy, public = self.policy(application)
+        if policy["production_agent"] != agent or not public["enabled"]:
+            raise ValueError("Only the assigned production agent may roll back")
+        if policy.get("production_rollback", "agent") == "off":
+            raise ValueError(
+                "The release policy disables agent rollback; propose a rollback plan for owner approval"
+            )
+        return self.restore(
+            self.latest_blocked(application, "production", public), agent
+        )
+
+    def restore(self, run, agent):
+        d = self.service
+        app = d.get("app/" + run["application"] + "/production")
+        if not app["previous"]:
+            raise ValueError("No previous production release to restore")
+        plan = d.plan(run["application"], "production", action="rollback")
+        job = d.enqueue(
+            plan["plan_id"], source="release-policy-rollback/" + run["id"], actor=agent
+        )
+        run.update(
+            rollback={"plan": plan["plan_id"], "release": plan["release"]},
+            reason="Production checks failed; restoring previous release "
+            + plan["release"]
+            + " (images only, database unchanged)",
+        )
+        self.save(run)
+        return job
+
+    def post(self, notice_id, sender, channel, tag_list, content):
+        """Durable, idempotent Buzz notice signed by a release agent."""
+        manager = self.service.manager
+        with self.service.lock:
+            notice = self.service.db.get("automation-notice/" + notice_id)
+        if notice and notice.get("sent"):
+            return
+        if not notice:
+            notice = {
+                "event": sign(
+                    sender["secret"], 9, [["h", channel["uuid"]], *tag_list], content
+                ),
+                "sent": False,
+            }
+            self.service.put(
+                "automation-notice/" + notice_id, "automation_notice", notice
+            )
+        manager.actor(sender["secret"], sender["auth_tag"]).publish(notice["event"])
+        notice["sent"] = True
+        self.service.put("automation-notice/" + notice_id, "automation_notice", notice)
+
     def notify(self, run, policy):
         """Durable, idempotent technical handoff; no COA or owner signing key."""
         if not policy.get("notification_channel"):
@@ -346,41 +470,50 @@ raise SystemExit(code)
                 for a in (target, sender)
             ):
                 return
-            id = generation(
-                [run["id"], run["state"], run["stage"], run.get("retries", 0)]
+            state = [
+                run["id"],
+                run["state"],
+                run["stage"],
+                run.get("retries", 0),
+                run["reason"],
+            ]
+            self.post(
+                generation(state),
+                sender,
+                channel,
+                # The p tag is what wakes a buzz-acp agent; the mention is display metadata.
+                [
+                    ["p", target["pubkey"]],
+                    ["mention", target["pubkey"], "agent-address"],
+                ],
+                "@"
+                + target["name"]
+                + " Automatic release "
+                + run["release"]
+                + " for "
+                + run["application"]
+                + ": "
+                + run["reason"]
+                + ". Follow your release runbook skill: inspect release automation, the failed checks' output and service logs. Routine rollout is authorized by the standing release policy; do not request another owner approval. Fix the cause (code fixes arrive as a new CI release), verify, and retry only after a fix. Ask the owner only for missing credentials or a decision outside the policy.",
             )
-            with self.service.lock:
-                notice = self.service.db.get("automation-notice/" + id)
-            if notice and notice.get("sent"):
-                return
-            if not notice:
-                content = (
-                    "@"
-                    + target["name"]
-                    + " Automatic release "
-                    + run["release"]
-                    + " for "
+            owner = manager.config["owner"]
+            if (
+                run["state"] == "blocked"
+                and run.get("owner_action")
+                and owner in authoritative["roles"]
+            ):
+                self.post(
+                    generation(state + ["owner", run["owner_action"]]),
+                    target,
+                    channel,
+                    [["p", owner]],
+                    "Owner action needed for "
                     + run["application"]
+                    + " release "
+                    + run["release"]
                     + ": "
-                    + run["reason"]
-                    + ". Inspect release automation and service diagnostics. Routine rollout is authorized by the standing release policy; do not request another owner approval. Investigate technical failures and retry only after a fix. Ask the owner only for missing credentials or a decision outside the policy."
+                    + run["owner_action"],
                 )
-                notice = {
-                    "event": sign(
-                        sender["secret"],
-                        9,
-                        [
-                            ["h", channel["uuid"]],
-                            ["mention", target["pubkey"], "agent-address"],
-                        ],
-                        content,
-                    ),
-                    "sent": False,
-                }
-                self.service.put("automation-notice/" + id, "automation_notice", notice)
-            manager.actor(sender["secret"], sender["auth_tag"]).publish(notice["event"])
-            notice["sent"] = True
-            self.service.put("automation-notice/" + id, "automation_notice", notice)
         except Exception:  # noqa: BLE001 -- durable retry; notifications do not block releases
             return
 
@@ -461,3 +594,35 @@ raise SystemExit(code)
                         "Automatic release paused; the assigned agent should inspect configuration and service diagnostics",
                     )
                     self.notify(run, policy)
+
+
+def owner_action(application, environment, missing):
+    """Exact host commands for credentials only the operator can supply."""
+    commands = "; ".join(
+        "echo '"
+        + json.dumps(
+            {
+                "action": "credential",
+                "application": application,
+                "environment": environment,
+                "id": ref,
+            }
+        )
+        + "' > "
+        + ref
+        + ".json && team-builder deployment "
+        + ref
+        + ".json --secret-file /path/to/"
+        + ref
+        for ref in missing
+    )
+    return (
+        "provide "
+        + ", ".join(missing)
+        + " for "
+        + application
+        + "/"
+        + environment
+        + " on the host (never in chat): "
+        + commands
+    )

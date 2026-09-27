@@ -251,6 +251,10 @@ class Profiles:
                     and files[target].stat().st_size > 0,
                     "required_file",
                 )
+            if live and p["connections"]:
+                from .release_changes import reattach
+
+                reattach(self.service, app)
             for connection in p["connections"]:
                 if live and all(c["status"] == "passed" for c in checks):
                     add(

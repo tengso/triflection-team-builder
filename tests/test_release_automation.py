@@ -53,7 +53,7 @@ def prepare(manager):
             "State": {"Health": {"Status": "healthy"}},
         }
     )
-    d.automation.check = Mock()
+    d.automation.check = Mock(return_value=(0, ""))
     return d, policy
 
 
@@ -197,16 +197,21 @@ def test_existing_healthy_profile_release_is_checked_without_redeploy(manager):
     assert not d.db.list("job")
 
 
-def test_check_wrapper_discards_output_and_enforces_timeout(manager):
+def test_check_wrapper_bounds_output_timeout_and_environment(manager):
     d, policy = prepare(manager)
     from team_builder.release_automation import Automation
 
-    d.docker.exec = Mock()
-    Automation(d).check(
-        d.get("app/portal/production"), {**policy["checks"][0], "timeout": 3}
-    )
-    args = d.docker.exec.call_args.args[1]
-    assert "DEVNULL" in args[2] and "killpg" in args[2] and args[-1] == "3"
+    d.docker.exec_output = Mock(return_value=(0, ""))
+    check = {
+        **policy["checks"][0],
+        "command": ["python", "-m", "acceptance", "--env", "{environment}"],
+        "timeout": 3,
+    }
+    Automation(d).check(d.get("app/portal/production"), check, "staging")
+    args = d.docker.exec_output.call_args.args[1]
+    assert "killpg" in args[2] and "[-8000:]" in args[2] and args[-1] == "3"
+    assert json.loads(args[3]) == ["python", "-m", "acceptance", "--env", "staging"]
+    assert d.docker.exec_output.call_args.kwargs["timeout"] == 33
 
 
 def test_notification_retries_same_signed_event_without_duplicate(manager):
@@ -237,6 +242,124 @@ def test_notification_retries_same_signed_event_without_duplicate(manager):
     d.automation.notify(run, policy)
     assert actor.publish.call_count == 2
     assert actor.publish.call_args_list[0] == actor.publish.call_args_list[1]
+    event = actor.publish.call_args.args[0]
+    # buzz-acp wakes an agent only for a p tag naming it.
+    assert ["p", actual["pubkey"]] in event["tags"]
+
+
+def test_owner_is_asked_for_missing_credentials_with_host_command(manager):
+    d, policy = prepare(manager)
+    for env in ("staging", "production"):
+        d.profiles.register(
+            "portal",
+            env,
+            {"id": "secret-v1", "secrets": {"DB_PASSWORD": "db-password"}},
+        )
+    policy.update(staging_profile="secret-v1", production_profile="secret-v1")
+    d.automation.configure(policy)
+    d.automation.tick()
+    run = d.automation.status("portal")["runs"][0]
+    assert run["state"] == "blocked" and "db-password" in run["reason"]
+    assert (
+        "team-builder deployment db-password.json --secret-file"
+        in (run["owner_action"])
+    )
+    policy["notification_channel"] = "office"
+    owner = manager.config["owner"]
+    actual = manager.resource("coa", "agent")
+    manager.resource = Mock(
+        side_effect=lambda id, kind: (
+            {"uuid": "channel"}
+            if kind == "channel"
+            else {**actual, "id": id, "name": id, "channel_ids": ["channel"]}
+        )
+    )
+    manager.buzz.channel = Mock(
+        return_value={"roles": {actual["pubkey"]: "member", owner: "owner"}}
+    )
+    actor = Mock()
+    manager.actor = Mock(return_value=actor)
+    d.automation.notify(run, policy)
+    events = [c.args[0] for c in actor.publish.call_args_list]
+    assert any(
+        ["p", owner] in e["tags"] and "db-password" in e["content"] for e in events
+    )
+
+
+def test_failed_check_output_is_masked_and_summary_mode_hides_it(manager):
+    d, policy = prepare(manager)
+    secret = manager.secrets["admin"]
+    d.automation.check = Mock(
+        return_value=(1, "Traceback: token=abc123def456 " + secret + " db refused")
+    )
+    results = d.automation.run_checks(
+        "portal", policy | {"staging_diagnostics": "redacted"}, "staging"
+    )
+    assert results[0]["passed"] is False and results[0]["exit_code"] == 1
+    assert "db refused" in results[0]["output"]
+    assert (
+        secret not in results[0]["output"]
+        and "abc123def456" not in results[0]["output"]
+    )
+    hidden = d.automation.run_checks(
+        "portal", policy | {"production_diagnostics": "summary"}, "production"
+    )
+    assert "output" not in hidden[0]
+    d.automation.check = Mock(return_value=(0, "all good"))
+    assert "output" not in d.automation.run_checks("portal", policy, "staging")[0]
+
+
+def test_agents_verify_on_demand_without_spending_retries(manager):
+    d, _ = prepare(manager)
+    with pytest.raises(ValueError, match="assigned release agent"):
+        d.automation.verify("portal", "staging", "oppo")
+    result = d.automation.verify("portal", "staging", "cody")
+    assert result["passed"] and result["checks"][0]["id"] == "functional"
+    with pytest.raises(ValueError, match="less than a minute"):
+        d.automation.verify("portal", "staging", "cody")
+    assert not d.db.list("job")
+
+
+def failing_production(manager, rollback="agent"):
+    d, policy = prepare(manager)
+    policy["production_rollback"] = rollback
+    d.automation.configure(policy)
+    app = d.get("app/portal/production")
+    app["current"] = "r1"
+    d.put("app/portal/production", "application", app)
+    d.automation.check = Mock(
+        side_effect=lambda app, check, env: (0, "") if env == "staging" else (1, "x")
+    )
+    for _ in range(3):
+        d.automation.tick()
+        run_jobs(d)
+    d.automation.tick()
+    return d, d.automation.status("portal")["runs"][0]
+
+
+def test_production_agent_rolls_back_when_policy_allows(manager):
+    d, run = failing_production(manager)
+    assert run["state"] == "blocked" and run["stage"] == "production"
+    with pytest.raises(ValueError, match="production agent"):
+        d.automation.rollback("portal", "cody")
+    job = d.automation.rollback("portal", "oppo")
+    assert job["action"] == "rollback" and job["release"] == "r1"
+    assert job["actor"] == "oppo" and job["source"].startswith(
+        "release-policy-rollback/"
+    )
+    assert "r1" in d.automation.status("portal")["runs"][0]["reason"]
+
+
+def test_automatic_rollback_and_disabled_rollback(manager):
+    d, run = failing_production(manager, "automatic")
+    assert run["rollback"]["release"] == "r1"
+    assert any(j["action"] == "rollback" for j in d.db.list("job"))
+
+
+def test_rollback_disabled_requires_owner(manager):
+    d, _ = failing_production(manager, "off")
+    with pytest.raises(ValueError, match="owner approval"):
+        d.automation.rollback("portal", "oppo")
 
 
 def test_detached_checks_do_not_attach_unused_output_streams():

@@ -12,9 +12,10 @@ Applications run as separate Docker containers on the Linux hosting VM, on netwo
 
 | Component | Responsibility |
 | --- | --- |
-| Local owner/operator | Register application specifications, provision secrets, register verified releases, assign agents, and operate deployments through the CLI. |
-| COA | Assign or revoke deployment access through owner-authorized community-management operations. |
-| Selected agent | Inspect assigned applications, propose deployments, and submit owner-authorized deploy/restart/rollback plans. |
+| Local owner/operator | Install Team Builder and supply secret values (database passwords, login files, GitHub tokens) on the host. Every other step can be proposed by a release agent; the CLI remains available for all of them. |
+| Owner | Reply `approve` to release agents' frozen proposals (setup changes, and deployments when no release policy is enabled). |
+| COA | Make an agent a release agent and assign or revoke deployment access through owner-authorized community-management operations. |
+| Release agents (e.g. Cody for UAT, Oppo for production) | Propose application registrations, profiles, generated credentials, dependency attachments, CI import settings, access grants and release policies; investigate, verify, retry and roll back under an enabled policy; propose deployments otherwise. |
 | Deployment service | Enforce scope and authorization, persist jobs, control host containers, check readiness, and record outcomes. |
 | Mission Control | Display service health, releases, operation history, and sanitized diagnostics. |
 
@@ -25,6 +26,41 @@ Assignments are per **agent ID + application ID + environment**. One agent can m
 ## Dashboard visibility
 
 Mission Control → **Deployments** shows service health, pinned releases, published ports, persistent operation history, and timestamped diagnostic logs. **Activity** also shows deployment outcomes. Logs are bounded diagnostic summaries; arbitrary application output, request bodies, and credentials are excluded. All timestamps use the browser's timezone. Observations become stale after 15 seconds and continue independently of deployment work.
+
+## Agent-led setup (recommended)
+
+Release agents do the technical setup; the owner approves it in Buzz and the
+operator only supplies secret values. An agent may propose changes for
+applications it holds a grant for; a **release agent** (set by the owner through
+COA: "Make Cody a release agent", operation `configure_release_agent`) may also
+introduce new applications, and then everything for them in the same proposal.
+
+The agent calls `propose_configuration_change` with a list of operations. The
+manager validates every payload and the agent's scope, then publishes a frozen
+proposal signed by the agent in its channel. After the owner replies `approve` to
+that proposal, the agent calls `approve_configuration_change`; the manager
+executes the operations in order and records each result, so a retry resumes
+after a partial failure.
+
+| Operation | Effect |
+| --- | --- |
+| `register_application` `{spec}` | Registers the immutable service specification for one environment (same schema as the CLI `register` request, without secrets). |
+| `register_profile` `{application, environment, profile}` | Registers an immutable profile: values, credential references, file references, required variables, dependency checks. |
+| `generate_credential` `{application, environment, id, rotate}` | Creates a generated secret such as an API token. Supplied secrets stay operator-only. |
+| `attach_dependency` `{application, environment, container, alias}` | Connects an existing host container (for example a database) to the application network under a DNS alias. Team Builder containers, privileged containers and containers with the Docker socket are refused. Recorded attachments are restored before preflight and deployment, e.g. after a database container is recreated. |
+| `configure_release_sync` `{application, repository, credential, workflow, branch, environments, services, enabled}` | Lets the manager import verified CI releases every two minutes (no host timer). `credential` names a stored GitHub credential. |
+| `configure_release_policy` `{policy}` | Registers, changes, enables or pauses the automatic release policy. |
+| `configure_deployment_access` `{agent, application, environment, allowed}` | Grants or revokes deployment access, including for another agent. |
+
+What remains for the operator: `team-builder github-credential NAME` for the
+importer's GitHub token (or reuse one already stored), and supplied application
+credentials. When one is missing, the release agent — and a blocked automatic run
+— tells the owner exactly which credential it is and the host command:
+
+```bash
+echo '{"action":"credential","application":"APP","environment":"ENV","id":"ID"}' > ID.json
+team-builder deployment ID.json --secret-file /private/path/ID
+```
 
 ## Operator setup
 
@@ -111,7 +147,11 @@ Every tool takes an `application`; `environment` defaults to `production`. Only 
 | `inspect_release_automation` | Read the standing policy, automatic runs, acceptance results and agent handoff. |
 | `retry_automatic_release` | Retry the assigned blocked stage after correcting its cause, within the standing policy and retry limit. |
 | `list_releases` | List operator-registered immutable releases. |
-| `get_service_logs` | Read bounded sanitized diagnostics for `service`. |
+| `get_service_logs` | Read diagnostics for `service`: `detail="summary"` (recognized entries) or `detail="redacted"` (last 200 lines, installation and environment secrets masked; staging, and production when the release policy allows). |
+| `verify_release_checks` | Run the release policy's acceptance checks now, at most once a minute. Does not deploy or spend a retry; failed checks include masked output. |
+| `rollback_production` | Production agent only: restore the previous production release after a blocked automatic run when the policy's `production_rollback` is `agent` (or `automatic`). Images only. |
+| `propose_configuration_change` | Publish a frozen release-setup proposal (`source_event_id`, `operations`); see Agent-led setup. No `application` parameter. |
+| `approve_configuration_change` | Execute the configuration proposal referenced by the owner's `approval_event_id`. |
 | `plan_deployment` | Freeze a plan with `operation` (`deploy`, `restart`, or `rollback`), `release` and optional `profile` for deploy, and optional `service` for restart. Does not execute changes. |
 | `list_environment_profiles` | List available profile/reference names and the last preflight result. No values are returned. |
 | `check_deployment_preflight` | Check credentials, required settings/files and TCP dependencies for an optional `profile`. |
@@ -123,7 +163,7 @@ Every tool takes an `application`; `environment` defaults to `production`. Only 
 
 The public `plan_deployment` MCP tool and the local CLI plan request both use `operation`. The MCP facade translates this to `action_type` internally; agents do not need to construct internal HTTP requests.
 
-Assigned agents cannot register applications, inject executable specifications or volumes, provision production credentials, or register releases. Those remain local-operator actions. Deployment access does not give an ordinary agent COA's general community-management tools.
+Agents cannot change anything directly: application specifications, profiles, generated credentials, dependency attachments, CI import settings, grants and policies take effect only through an owner-approved frozen proposal. Agents never handle supplied secret values and cannot register releases by hand; releases come from the verified CI importer or the operator. Deployment access does not give an ordinary agent COA's general community-management tools.
 
 ## Deployment and recovery
 
@@ -169,13 +209,25 @@ Cody develops and opens changes; a trusted GitHub Actions workflow on `main` tes
 
 Deployment proposals are published under the assigned agent's identity. That agent must belong to the proposal channel in both the registry and authoritative Buzz state. COA does not join engineering or operations channels. An approval must be a signed owner reply to that agent's exact frozen proposal, in the same channel and assigned application/environment. Retrying publication reuses the same event.
 
-### One-time host setup
+### One-time setup
 
-Register the application separately for `staging` and `production`, including its host ports, runtime secrets, users file, and database network, using the registration instructions above. Grant Cody only staging and Oppo only production. These privileged specifications and credentials remain operator-managed; subsequent verified image releases are registered automatically.
+Register the application separately for `staging` and `production` and grant
+Cody only staging and Oppo only production — normally as one agent proposal (see
+Agent-led setup), otherwise with the CLI requests above.
 
-Provision a named GitHub credential with access to the application repository and **Actions: read** (a classic PAT requires `repo` for private repositories). The importer uses the existing Team Builder credential store; do not put a token in this JSON or grant it to Oppo. Prefer a dedicated read-only credential for the importer where available.
+Provision a named GitHub credential with access to the application repository and **Actions: read** (a classic PAT requires `repo` for private repositories). The importer uses the existing Team Builder credential store; never put a token in the configuration. Prefer a dedicated read-only credential for the importer where available.
 
-Create `/home/ubuntu/release-sync.json`:
+**Manager-run importer (recommended).** Cody proposes `configure_release_sync`
+with the repository, credential name, workflow, branch, environments and
+services; after approval the manager polls GitHub every two minutes and records
+status for Mission Control. No systemd unit or host Docker access is needed. The
+operator can apply the same settings directly:
+
+```json
+{"action":"release-sync-config","application":"hti-research-admin","repository":"tengso/hti-research-admin","credential":"github-platform","services":["ui","api"]}
+```
+
+**Alternative: host timer.** The importer can still run on the host. Create `/home/ubuntu/release-sync.json`:
 
 ```json
 {
@@ -349,8 +401,8 @@ on request and execution, not continuously; their timestamps indicate their age.
 
 ## Automatic UAT acceptance and production promotion
 
-An operator can now authorize routine releases once, through an **enabled release
-policy**. This is a separate authorization mode from per-release Buzz approval.
+The owner (by approving a release agent's proposal) or the operator can authorize
+routine releases once, through an **enabled release policy**. This is a separate authorization mode from per-release Buzz approval.
 Existing applications remain manual unless a policy is explicitly enabled.
 
 The manager selects the highest registered `ci-<run_id>-<attempt>` release, checks
@@ -363,15 +415,15 @@ release and profile are checked without unnecessary container replacement.
 
 The durable workflow belongs to the manager. Cody and Oppo are accountable agents,
 not processes that must stay in a long chat loop. Agent scope/state is checked at
-queue/execution time. Their tokens cannot create policy, redefine tests, provision
-credentials or manufacture acceptance evidence. Stopping/revoking an assigned
+queue/execution time. Their tokens cannot change policy or checks without owner approval,
+handle supplied credentials or manufacture acceptance evidence. Stopping/revoking an assigned
 agent prevents its automatic stage from executing. COA is not involved.
 
 ### Enable a policy once
 
 Register both applications, profiles, credentials, CI releases and agent grants
-first. Acceptance checks are operator-defined commands executed inside registered
-application containers. Use bounded **read-only, repeatable** checks. Raw output is
+first. Acceptance checks are commands executed inside registered application containers;
+they come from the operator or an owner-approved agent proposal. Use bounded **read-only, repeatable** checks. Raw output is
 discarded; only named pass/fail results are recorded. Do not embed credentials in
 commands. Tests use credentials already available to the application.
 
@@ -384,9 +436,9 @@ team-builder deployment automatic-releases.json
 
 Review/adapt the file before enabling on a different application. Enabling it can
 immediately process the newest registered CI release, including one that already
-existed before policy registration. Commands/checks are privileged operator input;
-application code and CI must already be trusted to run in the application container.
-No arbitrary command supplied by an agent or a Buzz message becomes a check.
+existed before policy registration. Checks are privileged input (from the operator or an owner-approved
+proposal); application code and CI must already be trusted to run in the application container.
+No command supplied by an agent or a Buzz message becomes a check without the owner approving the frozen policy that contains it.
 
 The [HTI example generator](../examples/release-automation/hti-policy.py) checks UI
 HTTP readiness, authenticated API readiness, a read of the existing CRM override
@@ -402,8 +454,17 @@ For other applications the policy fields are:
 | `enabled` | Explicit standing authorization for staging and production |
 | `staging_agent`, `production_agent` | Agents with those exact deployment grants |
 | `staging_profile`, `production_profile` | Operator-provisioned profiles |
-| `checks` | One to eight `{id, service, command, timeout}` checks; timeout 1–30 seconds, run in both environments |
-| `notification_channel` | Optional managed channel ID shared by both release agents |
+| `checks` | One to eight `{id, service, command, timeout}` checks; timeout 1–300 seconds, run in both environments. `{environment}` in a command is replaced with `staging` or `production`, so one repository-owned entrypoint such as `["python", "-m", "acceptance", "--environment", "{environment}"]` can serve both. |
+| `notification_channel` | Optional managed channel ID shared by both release agents (and the owner, for owner requests) |
+| `production_rollback` | `agent` (default): the production agent may call `rollback_production` after failed production checks; `automatic`: the manager restores the previous release immediately; `off`: rollback needs an owner-approved plan |
+| `staging_diagnostics`, `production_diagnostics` | `redacted` (default): assigned agents see masked output of failed checks and masked log tails; `summary`: pass/fail and recognized log entries only. Policies registered before these fields existed keep production at `summary` |
+
+Prefer checks that live in the application repository: the development agent
+maintains the acceptance entrypoint through reviewed pull requests, and the
+policy only names the command. `examples/release-automation/acceptance.py` is a
+template for such an entrypoint. Release agents can author and propose the whole
+policy with `configure_release_policy`; enabling it still requires the owner's
+approval.
 
 Use a shared notification channel for two distinct agents. Handoff, completion and
 failure messages mention the responsible agent and are retried using the same
@@ -415,15 +476,21 @@ available. Omit this field for one agent responsible for both scopes.
 Once trusted CI imports a release, no human needs to supply release IDs, profile
 names, deployment commands or routine approval replies. The worker performs UAT,
 acceptance, handoff, production deployment and production checks automatically.
-The assigned agents use `inspect_release_automation` to investigate status and
-`retry_automatic_release` after fixing a technical blocker. A blocked run permits
-a maximum of two agent-requested retries. Repeated polling does not retry it.
-New releases, credential versions or policy versions create a new run.
+Handoff, completion and failure notices mention the responsible agent with a `p`
+tag, which wakes it through its buzz-acp gateway; a run blocked on a missing
+supplied credential also sends the owner a notice with the exact host command.
+The assigned agents follow their release runbook skill: `inspect_release_automation`
+(including masked output of failed checks), `get_service_logs` with
+`detail="redacted"`, a fix (code fixes arrive as a new CI release), then
+`verify_release_checks` and `retry_automatic_release`. A blocked run permits a
+maximum of two agent-requested retries. Repeated polling does not retry it. New
+releases, credential versions or policy versions create a new run.
 
 Failed UAT blocks promotion. A failed deployment uses existing image recovery
-behavior. Failed post-deployment functional checks stop the workflow and notify
-the responsible role; they do not automatically repair databases or roll back
-potential application data changes. Technical failures require investigation by
+behavior. Failed production checks stop the workflow and notify the production
+agent, which may restore the previous release (`production_rollback: agent`), or
+the manager restores it immediately (`automatic`). Rollback restores images only;
+it does not repair databases or roll back application data changes. Technical failures require investigation by
 the assigned agent, not an owner approval loop. Missing credentials produce a
 plain-language owner request. Database migrations and broader privileges remain
 outside this policy and are never inferred from a failure.
