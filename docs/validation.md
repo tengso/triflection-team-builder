@@ -356,3 +356,15 @@ egress); CI builds the release images from source.
   (bounded to two retries); Mission Control fails fast instead and caches agent
   registration reads, reducing its background polling. No images were promoted by
   the failed run.
+
+## v0.7.0 release validation
+
+GitHub Actions run `36294352917` passed on 27 September 2026, building source
+`a30408b060ea2cb9efa5867202ef8e354b10c718`. It ran 234 unit tests and lint checks, built the Buzz, Hermes,
+pi, codex and devin images from the pinned sources, and passed fresh Linux Compose
+bootstrap, identity-preserving resume, tunnel/internal routing, dashboard
+authentication and secret isolation, configuration/proxy reload, agent-signed
+deployment proposals without COA membership, and community management before
+promoting the `0.7.0` tags. All five release tags were verified for anonymous
+pulls. The installer pins these digests, including the harness images for lazy
+use on first agent start.
