@@ -1,7 +1,7 @@
 {
-  "buzz": "ghcr.io/tengso/triflection-team-builder/buzz@sha256:029ed8ab1abb21b225c9f2f9e46f9499ff0b5996283b7012cf8ac64fb0ccfef5",
-  "hermes": "ghcr.io/tengso/triflection-team-builder/hermes@sha256:1bbda8644ad7b78e95d61267774a8eef8ea63752010cf34ba913c7b25dfe98b3",
-  "pi": "ghcr.io/tengso/triflection-team-builder/pi@sha256:4fe8a702dce077bdadcaa19619d3d3ef7de86be93cd82126405b4583bc3eabb2",
-  "codex": "ghcr.io/tengso/triflection-team-builder/codex@sha256:94f6f542f0544c527b9cf8523fb5f4c338c70253df9116d2788b503e57e4664e",
-  "devin": "ghcr.io/tengso/triflection-team-builder/devin@sha256:f79acf6f88fed3cdee409aa7a019fa6d6e070da204ba37dfa00eea09afd0f327"
+  "buzz": "ghcr.io/tengso/triflection-team-builder/buzz@sha256:dea9001972c9e125fff68d1ccec3a01a17ecb4fa38ed70f5c4ef6172886b2ec3",
+  "hermes": "ghcr.io/tengso/triflection-team-builder/hermes@sha256:89c37271e1477397b39fadb1e0ba5e63ae35518742e5084662d5ff550b460478",
+  "pi": "ghcr.io/tengso/triflection-team-builder/pi@sha256:ff6d502f5b2fbc337b5e01d016061f6b73f09f33794f4cf92e6d2cd496d15035",
+  "codex": "ghcr.io/tengso/triflection-team-builder/codex@sha256:06f645bf797584ceac719b08250b35dd953aec7ecb1bf69e13f75cbecabe3249",
+  "devin": "ghcr.io/tengso/triflection-team-builder/devin@sha256:fdbae3187446ad2e80f33ab12ff9df44eb8a4c20f1fe6ac2ed283a9ea498a9e6"
 }

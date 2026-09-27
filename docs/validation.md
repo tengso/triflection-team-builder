@@ -390,3 +390,15 @@ use on first agent start.
   buzz-acp agent (`harnesses.py`) could not run: the VM lost outbound HTTPS.
   Owner mentions, which use the same p-tag dispatch, passed in every earlier live
   harness run. The release workflow now also runs the agent-setup exercise.
+
+## v0.8.0 release validation
+
+GitHub Actions run `36320393254` passed on 27 September 2026, building source
+`c46072fa7dd88a1c092cdb846360fc80ec62dcfa`. It ran 246 unit tests and lint checks, built all five images
+from the pinned sources, and passed fresh Linux Compose bootstrap, identity-
+preserving resume, routing, dashboard, configuration/proxy reload, the new
+agent-led setup exercise (agent-signed proposal through the relay, owner
+approval, generated credential, dependency attachment and restore, exec output
+capture), agent-signed deployment proposals and community management before
+promoting the `0.8.0` tags. All five release tags were verified for anonymous
+pulls, and the installer pins these digests.
