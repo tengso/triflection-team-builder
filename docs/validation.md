@@ -348,9 +348,11 @@ egress); CI builds the release images from source.
 - Test changes found by these runs: harness checks now run before the management
   exercise (which archives COA and deletes the office), and the management job
   assertion is scoped to its own application.
-- Known limit (unchanged since v0.6.0): Mission Control's observer queries the relay
-  every five seconds with the manager's identity (two queries per agent plus one per
-  channel and project). With harness agents still running, the subsequent
-  management exercise exceeded the relay's default 300 calls/minute for that
-  identity (HTTP 429). CI runs management without harness agents. Caching
-  per-agent registration/profile reads is a planned follow-up.
+- The first publish run (`36292487498`) failed its management check with HTTP 429:
+  the relay allows 300 API calls per identity per minute, and a burst of verified
+  management operations reached 281–298 calls in one minute through the manager's
+  identity on the VM, and more on the faster runner. The manager's relay client now
+  waits for the quota window to reset and retries with freshly signed requests
+  (bounded to two retries); Mission Control fails fast instead and caches agent
+  registration reads, reducing its background polling. No images were promoted by
+  the failed run.

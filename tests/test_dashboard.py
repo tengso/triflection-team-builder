@@ -602,3 +602,25 @@ def test_operation_times_persist_and_legacy_is_unknown(manager, observer, monkey
     assert timed["created_at"] == 1000.0 and timed["updated_at"] == 2000.0
     assert legacy["id"] == "legacy"
     assert legacy["created_at"] is None and legacy["updated_at"] is None
+
+
+def test_registration_reads_are_cached_to_spare_the_relay_quota(manager):
+    calls = []
+    real_head = manager.buzz.head
+
+    def head(kind, author, identifier=None):
+        if kind in (0, 30177):
+            calls.append(kind)
+        return real_head(kind, author, identifier)
+
+    manager.buzz.head = head
+    item = Observer(manager, engine=EngineStub(), buzz=manager.buzz)
+    item.collect()
+    first = len(calls)
+    assert first >= 2
+    item.collect()
+    assert len(calls) == first
+    for cached in item.registrations.values():
+        cached["collected_at"] -= 61
+    item.collect()
+    assert len(calls) == 2 * first

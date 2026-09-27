@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -6,27 +7,58 @@ import httpx
 
 from .nostr import auth, public, sign, tags, verify, wire
 
+RATE_LIMIT_RETRIES = 2
+RATE_LIMIT_MAX_WAIT = 65
+
+
+def retry_after(response):
+    try:
+        message = str(response.json())
+    except ValueError:
+        message = response.text
+    match = re.search(r"retry in (\d+)s", message)
+    return min(int(match.group(1)) + 1 if match else 5, RATE_LIMIT_MAX_WAIT)
+
 
 class Buzz:
-    def __init__(self, origin, secret, relay, auth_tag=None, canonical_origin=None):
+    def __init__(
+        self,
+        origin,
+        secret,
+        relay,
+        auth_tag=None,
+        canonical_origin=None,
+        wait_on_rate_limit=True,
+    ):
         self.origin, self.secret, self.relay = origin.rstrip("/"), secret, relay
         self.pubkey, self.auth_tag = public(secret), auth_tag
         self.canonical_origin = (canonical_origin or origin).rstrip("/")
         self.client = httpx.Client(timeout=30, trust_env=False)
+        self.wait_on_rate_limit = wait_on_rate_limit
 
     def call(self, method, path, data=None):
         url = self.origin + path
         body = wire(data) if data is not None else None
-        headers = {
-            "Authorization": auth(
-                self.secret, method, self.canonical_origin + path, body
-            ),
-            "Host": urlsplit(self.canonical_origin).netloc,
-            "Content-Type": "application/json",
-        }
-        if self.auth_tag:
-            headers["x-auth-tag"] = wire(self.auth_tag).decode()
-        response = self.client.request(method, url, content=body, headers=headers)
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            # NIP-98 events are single-use, so every attempt is signed afresh.
+            headers = {
+                "Authorization": auth(
+                    self.secret, method, self.canonical_origin + path, body
+                ),
+                "Host": urlsplit(self.canonical_origin).netloc,
+                "Content-Type": "application/json",
+            }
+            if self.auth_tag:
+                headers["x-auth-tag"] = wire(self.auth_tag).decode()
+            response = self.client.request(method, url, content=body, headers=headers)
+            if (
+                response.status_code != 429
+                or not self.wait_on_rate_limit
+                or attempt == RATE_LIMIT_RETRIES
+            ):
+                break
+            # The relay's per-identity quota is a fixed window; wait for its reset.
+            time.sleep(retry_after(response))
         if response.status_code != 200:
             raise RuntimeError(
                 f"Buzz {method} {path.split('?')[0]} failed (HTTP {response.status_code})"

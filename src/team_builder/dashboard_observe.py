@@ -17,6 +17,8 @@ from .nostr import tags
 
 SLUG = re.compile(r"^[a-z][a-z0-9-]{0,47}$")
 SERVICES = ("manager", "relay", "postgres", "redis", "minio", "minio-init")
+# Seconds to reuse a registration read: present ones rarely change, missing ones may soon.
+REGISTRATION_TTL = {"present": 60, "missing": 15}
 
 
 def read_local(path, parent, limit=262144):
@@ -354,10 +356,13 @@ class Observer:
             manager.secrets["admin"],
             self.config["relay"],
             canonical_origin=self.config["advertised_url"],
+            wait_on_rate_limit=False,
         )
         if hasattr(self.buzz, "client"):
             self.buzz.client.timeout = httpx.Timeout(2)
         self.lock = threading.Lock()
+        # The observer shares the manager's relay quota; registrations rarely change.
+        self.registrations = {}
         self.snapshot = {
             "collected_at": None,
             "agents": [],
@@ -509,15 +514,25 @@ class Observer:
                 else self.config.get("coa_pubkey")
             )
             out["model"] = out["model"] or self.config.get("model")
+            cache_key = (out["owner"], out["pubkey"])
+            cached = self.registrations.get(cache_key)
             try:
-                registration = self.buzz.head(30177, out["owner"], out["pubkey"])
-                profile = self.buzz.head(0, out["pubkey"])
-                out["registration"] = {
-                    "status": "present" if registration and profile else "missing",
-                    "owner": out["owner"],
-                    "profile_present": bool(profile),
-                    "collected_at": time.time(),
-                }
+                if (
+                    cached
+                    and time.time() - cached["collected_at"]
+                    < (REGISTRATION_TTL[cached["status"]])
+                ):
+                    out["registration"] = cached
+                else:
+                    registration = self.buzz.head(30177, out["owner"], out["pubkey"])
+                    profile = self.buzz.head(0, out["pubkey"])
+                    out["registration"] = {
+                        "status": "present" if registration and profile else "missing",
+                        "owner": out["owner"],
+                        "profile_present": bool(profile),
+                        "collected_at": time.time(),
+                    }
+                    self.registrations[cache_key] = out["registration"]
             except (
                 httpx.HTTPError,
                 ValueError,
