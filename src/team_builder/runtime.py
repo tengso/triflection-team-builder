@@ -288,6 +288,21 @@ def _coa_rules(config):
     )
 
 
+APPROVALS = ("approve", "Approve", "APPROVE")
+
+
+def _release_rules(config):
+    """Wake release agents for the owner's bare approve reply, which clients may send untagged."""
+    content = " || ".join(f'content == "{word}"' for word in APPROVALS)
+    return (
+        '[[rules]]\nname = "mentions"\nchannels = "all"\nkinds = [9]\n'
+        "require_mention = true\n\n"
+        '[[rules]]\nname = "owner-approvals"\nchannels = "all"\nkinds = [9]\n'
+        "require_mention = false\n"
+        f"filter = 'author == \"{config['owner']}\" && ({content})'\n"
+    )
+
+
 def write_github_token(root, agent):
     from .github_access import token_for
 
@@ -423,9 +438,12 @@ def _write_agent_files(root, config, secrets, agent):
             (root / "credentials" / (agent["harness_credential"] + ".json")).read_text()
         )
         env["WINDSURF_API_KEY"] = credential["api_key"]
-    if agent["id"] == "coa":
-        private_write(managed / "rules.toml", _coa_rules(config).encode())
+    if agent["id"] == "coa" or release_agent(agent):
+        rules = _coa_rules(config) if agent["id"] == "coa" else _release_rules(config)
+        private_write(managed / "rules.toml", rules.encode())
         names.append("rules.toml")
+    else:
+        (managed / "rules.toml").unlink(missing_ok=True)
     private_write(managed / "harness.json", harness_document)
     private_write(managed / "config.yaml", yaml.safe_dump(document).encode())
     private_write(managed / "env.json", env)

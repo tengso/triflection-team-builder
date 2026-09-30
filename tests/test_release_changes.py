@@ -381,3 +381,24 @@ def test_agent_errors_are_actionable_but_unexpected_failures_stay_opaque():
         TypeAdapter(int).validate_python("hidden-value")
     summary = agent_error(caught.value)
     assert summary.startswith("Invalid request:") and "hidden-value" not in summary
+
+
+def test_release_agents_wake_for_untagged_owner_approvals(
+    manager, create_ops, monkeypatch
+):
+    engineer(manager, create_ops, monkeypatch)
+    rules = manager.root / "agents/engineer/managed/rules.toml"
+    assert not rules.exists()
+    manager.apply({"action": "configure_release_agent", "agent": "engineer"})
+    import tomllib
+
+    parsed = tomllib.loads(rules.read_text())["rules"]
+    assert [r["name"] for r in parsed] == ["mentions", "owner-approvals"]
+    approvals = parsed[1]
+    assert approvals["require_mention"] is False and approvals["kinds"] == [9]
+    assert f'author == "{manager.config["owner"]}"' in approvals["filter"]
+    assert 'content == "approve"' in approvals["filter"]
+    manager.apply(
+        {"action": "configure_release_agent", "agent": "engineer", "enabled": False}
+    )
+    assert not rules.exists()

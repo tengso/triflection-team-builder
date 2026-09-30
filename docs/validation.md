@@ -433,3 +433,16 @@ puts an exact, test-validated JSON example in the release runbook. 249 unit test
 pass; the example and the agent's real malformed payload are regression tests.
 
 GitHub Actions run `36686908585` passed for v0.8.1 (source `4d751c9472394f382e7035fa1de691558ce8d46e`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.1` tags were promoted.
+
+## v0.8.2 — release agents wake for untagged approvals
+
+On a live 0.8.1 installation the owner replied `approve` to Cody's setup proposal
+from a Buzz client that sent the reply without a `p` tag. buzz-acp dispatches
+only p-tagged messages to ordinary agents, so Cody never woke and the proposal
+was never executed. Release agents now get a `rules.toml` with an
+`owner-approvals` rule (owner-authored kind-9 messages whose content is exactly
+`approve`) in addition to the mention rule; the manager still verifies that the
+approval replies directly to the agent's own proposal. The live pi deployment
+test now sends a bare, untagged `approve`: on `sandbox2` (published images plus
+the patched manager) the pi agent woke and the deployment succeeded
+(`BOOTSTRAP-EXIT=0`). 250 unit tests pass.

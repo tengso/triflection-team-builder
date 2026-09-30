@@ -267,12 +267,9 @@ def pi_deployment_flow(m, owner, owner_secret, execute, wait_ready, image):
         sign(
             owner_secret,
             9,
-            [
-                ["h", channel],
-                *reply_tags(proposal),
-                ["p", agent["pubkey"]],
-                ["mention", agent["pubkey"], "agent-address"],
-            ],
+            # A bare reply with no p tag, as some Buzz clients send it: the
+            # release agent's owner-approval rule must still wake the agent.
+            [["h", channel], *reply_tags(proposal)],
             "approve",
         )
     )

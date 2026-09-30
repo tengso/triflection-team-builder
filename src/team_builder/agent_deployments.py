@@ -425,8 +425,10 @@ inspect, list and preflight tools answer "no access"; that is expected. Start wi
    `configure_release_policy` with `enabled: true`, both agents, the profiles,
    checks calling the acceptance entrypoint, the shared notification channel,
    `production_rollback` and the diagnostics settings.
-6. When the owner replies `approve`, call `approve_configuration_change`
-   (deployment plans: `approve_deployment`) with that reply's Event ID.
+6. When the owner replies `approve` to your own proposal, call
+   `approve_configuration_change` (deployment plans: `approve_deployment`) with
+   that reply's Event ID. You are woken for every owner `approve` in your
+   channels; if it replies to someone else's proposal, do nothing.
 
 ## When a notice mentions you
 
