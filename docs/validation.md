@@ -417,3 +417,17 @@ community management and identity-preserving resume all passed. Devin was
 skipped for lack of a Devin credential. A duplicate agent-setup step in
 `harnesses.py` that collided with `agent_setup.py` (same application ID) was
 removed from the test suite.
+
+## v0.8.1 — actionable deployment-tool errors
+
+A live release agent (Cody, Hermes, `moonshotai/kimi-k3`) could not complete
+agent-led setup on an 0.8.0 installation: every deployment tool call returned the
+generic "Deployment request rejected" message. The server only passed through an
+allowlist of pre-0.8.0 messages, so expected answers ("no access" before the
+first approval) and schema errors in the agent's proposal (`op` instead of
+`action`, a profile ID string instead of an object, a string `command`) were
+hidden, and the agent concluded its grant had not propagated. 0.8.1 returns
+controlled `ValueError` messages and field-path-only validation summaries (never
+submitted values), validates proposals per operation with the failing index, and
+puts an exact, test-validated JSON example in the release runbook. 249 unit tests
+pass; the example and the agent's real malformed payload are regression tests.

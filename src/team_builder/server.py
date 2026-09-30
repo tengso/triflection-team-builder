@@ -6,6 +6,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .agent_config import inspect_config
+from .deployment_api import agent_error
 from .manager import Manager
 from .nostr import wire
 
@@ -46,26 +47,7 @@ def serve(manager, address=("0.0.0.0", 8088)):
                     )
                     self.answer(200, result)
                 except Exception as exc:  # noqa: BLE001 -- sanitize deployment boundary failures
-                    safe_errors = {
-                        "Owner must reply 'approve' directly to this proposal",
-                        "Approval must be in the proposal channel",
-                        "Approval predates proposal",
-                        "Only the human owner can authorize changes",
-                        "Approval must target this agent's proposal in its channel",
-                        "Reply approve to the frozen deployment proposal",
-                        "Proposal outside assigned scope",
-                        "Plan outside assigned scope",
-                        "Source message outside agent channels",
-                        "Only the assigned release agent may retry this stage",
-                        "No automatic release run",
-                        "No retryable stage in this scope",
-                        "Retry limit reached; fix configuration or publish a new release",
-                    }
-                    detail = (
-                        str(exc)
-                        if isinstance(exc, ValueError) and str(exc) in safe_errors
-                        else "Deployment request rejected; verify authorization, resource scope and plan revision"
-                    )
+                    detail = agent_error(exc)
                     self.answer(
                         400,
                         {"error": detail},

@@ -3,8 +3,29 @@
 import hmac
 import json
 
+from pydantic import ValidationError
+
 from .deployments import token
 from .nostr import tags
+
+GENERIC_ERROR = "Deployment request rejected; verify authorization, resource scope and plan revision"
+
+
+def validation_summary(exc, prefix=""):
+    """Field paths and messages only; never echo submitted values."""
+    return "; ".join(
+        prefix + ".".join(str(p) for p in e["loc"]) + ": " + e["msg"]
+        for e in exc.errors()[:8]
+    )
+
+
+def agent_error(exc):
+    """Actionable, value-free errors for agents; opaque for unexpected failures."""
+    if isinstance(exc, ValidationError):
+        return "Invalid request: " + validation_summary(exc)
+    if isinstance(exc, ValueError):
+        return str(exc)[:600]
+    return GENERIC_ERROR
 
 
 def handle(manager, path, authorization, body):
@@ -176,13 +197,15 @@ def handle(manager, path, authorization, body):
 
 def change(manager, agent, action, body):
     """Agent-authored release setup: frozen proposal, owner approval, manager execution."""
-    from .models import RELEASE_CHANGES, validate
-    from .release_changes import check_scope
+    from .models import RELEASE_CHANGES
+    from .release_changes import check_scope, validate_operations
 
     service = manager.deployments
     with manager.lock:
         if action == "propose-change":
-            operations = check_scope(service, agent, validate(body["operations"]))
+            operations = check_scope(
+                service, agent, validate_operations(body.get("operations"))
+            )
             source = manager.source(body["source_event_id"])
             if (
                 tags(source, "h")[0][0]

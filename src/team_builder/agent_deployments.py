@@ -283,6 +283,79 @@ def skill(assignments):
     return "\n".join(lines) + "\n"
 
 
+EXAMPLE_OPERATIONS = [
+    {
+        "action": "register_application",
+        "spec": {
+            "id": "my-app",
+            "environment": "staging",
+            "repository": "owner/my-app",
+            "services": [
+                {
+                    "id": "ui",
+                    "command": ["ui"],
+                    "port": 8502,
+                    "host_port": 18502,
+                    "health_path": "/healthz",
+                    "data_path": "/app/data",
+                    "environment": {"API_URL": "http://api:8002"},
+                },
+                {
+                    "id": "api",
+                    "command": ["api"],
+                    "port": 8002,
+                    "health_path": "/health",
+                    "health_token_env": "API_TOKEN",
+                },
+            ],
+        },
+    },
+    {
+        "action": "generate_credential",
+        "application": "my-app",
+        "environment": "staging",
+        "id": "api-token",
+    },
+    {
+        "action": "register_profile",
+        "application": "my-app",
+        "environment": "staging",
+        "profile": {
+            "id": "uat-v1",
+            "values": {"MYSQL_HOST": "db.internal", "MYSQL_PORT": "3306"},
+            "secrets": {"MYSQL_PASSWORD": "mysql-password", "API_TOKEN": "api-token"},
+            "files": {"/app/config/users.yaml": "users-yaml"},
+            "required_env": ["MYSQL_HOST", "MYSQL_PASSWORD", "API_TOKEN"],
+            "connections": [{"id": "mysql", "host": "db.internal", "port": 3306}],
+        },
+    },
+    {
+        "action": "attach_dependency",
+        "application": "my-app",
+        "environment": "staging",
+        "container": "uat-mysql-1",
+        "alias": "uat-mysql",
+    },
+    {
+        "action": "configure_deployment_access",
+        "agent": "cody",
+        "application": "my-app",
+        "environment": "staging",
+        "allowed": True,
+    },
+    {
+        "action": "configure_release_sync",
+        "application": "my-app",
+        "repository": "owner/my-app",
+        "credential": "github",
+        "workflow": "release.yml",
+        "branch": "main",
+        "environments": ["staging"],
+        "services": ["ui", "api"],
+    },
+]
+
+
 def runbook(assignments, cli=False):
     """Managed SKILL.md: the release agent's operating procedure (all harnesses)."""
     scope = ", ".join(assignments) or "no application yet (release agent)"
@@ -292,7 +365,7 @@ def runbook(assignments, cli=False):
         if cli
         else "Tool names below are your deployments MCP tools."
     )
-    return f"""---
+    text = f"""---
 name: team-managed-team-release-runbook
 description: Set up, release, investigate and recover assigned applications as a release agent
 ---
@@ -308,6 +381,10 @@ files, GitHub tokens) on the host. Never ask for or accept secret values in chat
 The manager validates and executes everything; queued is not success.
 
 ## Set up a new application
+
+Until your first setup proposal is approved you have no application scope, so
+inspect, list and preflight tools answer "no access"; that is expected. Start with
+`propose_configuration_change`.
 
 1. Read the application repository: service commands, ports, health endpoints
    (the image must contain `python` for health checks), data paths and required
@@ -327,6 +404,17 @@ The manager validates and executes everything; queued is not success.
      production agent (production).
    - `configure_release_sync`: repository, the stored GitHub credential name,
      workflow file, branch and services built from the one CI image.
+   Exact shape (every operation has an `action` key; `command` is a list;
+   `data_path` belongs to a service; `profile` is an object with its `id`; file
+   targets are absolute paths under /app/config; connections use `id`, `host`,
+   `port` with the real DNS name or container alias, never a variable name):
+
+```json
+{{EXAMPLE}}
+```
+
+   Ask the owner for dependency host names and ports you cannot find (they are
+   not secrets). Validation errors name the failing field; fix and resubmit.
 3. Tell the owner exactly which supplied credentials are still missing, with the
    host command: `echo '{{"action":"credential","application":"APP","environment":"ENV","id":"ID"}}' > ID.json && team-builder deployment ID.json --secret-file /path/to/ID`.
 4. In the repository (development agent): add the CI release workflow and image
@@ -365,6 +453,7 @@ The manager validates and executes everything; queued is not success.
 - Masked logs can still contain application data: summarize, never repost it.
 - Owner approval covers exactly the frozen proposal; propose again for changes.
 """
+    return text.replace("{EXAMPLE}", json.dumps(EXAMPLE_OPERATIONS, indent=2))
 
 
 if __name__ == "__main__":

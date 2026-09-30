@@ -337,3 +337,47 @@ def test_release_agent_without_grants_gets_tools_and_runbook(
                 "content": "y",
             },
         )
+
+
+def test_runbook_example_is_a_valid_proposal():
+    from team_builder.agent_deployments import EXAMPLE_OPERATIONS, runbook
+    from team_builder.release_changes import validate_operations
+
+    assert len(validate_operations(EXAMPLE_OPERATIONS)) == len(EXAMPLE_OPERATIONS)
+    text = runbook(["my-app/staging"])
+    block = text.split("```json\n", 1)[1].split("\n```", 1)[0]
+    assert json.loads(block) == EXAMPLE_OPERATIONS
+
+
+def test_malformed_proposals_get_actionable_value_free_errors():
+    from team_builder.release_changes import validate_operations
+
+    # Shapes a real agent submitted before the runbook carried an example.
+    with pytest.raises(ValueError, match=r"operations\[0\] needs an 'action' key"):
+        validate_operations([{"op": "register_application", "spec": {}}])
+    bad = spec("staging")
+    bad["services"][0]["command"] = "api-secret-marker"
+    with pytest.raises(ValueError) as caught:
+        validate_operations([{"action": "register_application", "spec": bad}])
+    message = str(caught.value)
+    assert "operations[0] register_application" in message
+    assert "services.0.command" in message and "runbook" in message
+    assert "api-secret-marker" not in message
+    with pytest.raises(ValueError, match="JSON list"):
+        validate_operations({"action": "register_application"})
+
+
+def test_agent_errors_are_actionable_but_unexpected_failures_stay_opaque():
+    from pydantic import TypeAdapter, ValidationError
+
+    from team_builder.deployment_api import GENERIC_ERROR, agent_error
+
+    assert agent_error(ValueError("Agent has no access to this deployment")) == (
+        "Agent has no access to this deployment"
+    )
+    assert agent_error(RuntimeError("docker socket /var/run/x")) == GENERIC_ERROR
+    assert agent_error(KeyError("secret")) == GENERIC_ERROR
+    with pytest.raises(ValidationError) as caught:
+        TypeAdapter(int).validate_python("hidden-value")
+    summary = agent_error(caught.value)
+    assert summary.startswith("Invalid request:") and "hidden-value" not in summary

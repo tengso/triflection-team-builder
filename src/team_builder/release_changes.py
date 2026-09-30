@@ -38,6 +38,38 @@ def validate_payload(op):
         Policy.model_validate(op["policy"])
 
 
+def validate_operations(operations):
+    """Typed validation with per-operation context an agent can act on."""
+    from pydantic import ValidationError
+
+    from .deployment_api import validation_summary
+    from .models import validate
+
+    if not isinstance(operations, list):
+        raise ValueError("operations must be a JSON list of operation objects")  # noqa: TRY004
+    for index, op in enumerate(operations):
+        if not isinstance(op, dict) or "action" not in op:
+            raise ValueError(
+                f"operations[{index}] needs an 'action' key (e.g. register_application); see the release runbook skill for exact shapes"
+            )
+    try:
+        operations = validate(operations)
+    except ValidationError as exc:
+        raise ValueError(
+            "Invalid operations: " + validation_summary(exc, "operations.")
+        ) from None
+    for index, op in enumerate(operations):
+        try:
+            validate_payload(op)
+        except ValidationError as exc:
+            raise ValueError(
+                f"Invalid operations[{index}] {op['action']}: "
+                + validation_summary(exc)
+                + ". See the release runbook skill for the exact JSON shape."
+            ) from None
+    return operations
+
+
 def check_scope(service, agent_id, operations):
     """Limit an agent's proposals to applications it operates or introduces."""
     agent = service.manager.resource(agent_id, "agent")
@@ -49,7 +81,6 @@ def check_scope(service, agent_id, operations):
     for op in operations:
         if op["action"] not in RELEASE_CHANGES:
             raise ValueError("Agents may propose only release configuration changes")
-        validate_payload(op)
         app = application_of(op)
         if op["action"] == "register_application":
             existing = any(
