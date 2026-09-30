@@ -446,3 +446,5 @@ approval replies directly to the agent's own proposal. The live pi deployment
 test now sends a bare, untagged `approve`: on `sandbox2` (published images plus
 the patched manager) the pi agent woke and the deployment succeeded
 (`BOOTSTRAP-EXIT=0`). 250 unit tests pass.
+
+GitHub Actions run `36691007334` passed for v0.8.2 (source `964f7537a8f08e1220bfb9b6b89042bff50a87bc`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.2` tags were promoted.
