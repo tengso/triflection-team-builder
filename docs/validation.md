@@ -431,3 +431,5 @@ controlled `ValueError` messages and field-path-only validation summaries (never
 submitted values), validates proposals per operation with the failing index, and
 puts an exact, test-validated JSON example in the release runbook. 249 unit tests
 pass; the example and the agent's real malformed payload are regression tests.
+
+GitHub Actions run `36686908585` passed for v0.8.1 (source `4d751c9472394f382e7035fa1de691558ce8d46e`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.1` tags were promoted.
