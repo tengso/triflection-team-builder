@@ -266,9 +266,12 @@ def _finish(config, secrets, agent, document, harness_document, env, soul):
     )
     soul += (
         "\n\nDelivery: your final assistant text is NOT shown to anyone. Every reply "
-        "must be posted with the buzz CLI, replying to the triggering message: "
-        "printf '%s\\n' \"<reply>\" | buzz messages send --channel <channel uuid> "
-        "--reply-to <Event ID from the buzz-event block> --content -. Post exactly "
+        "must be posted with the buzz CLI, replying to the triggering message. Write "
+        "the reply to a file with your file tool (for example /work/.buzz-reply.md), "
+        "then run: buzz messages send --channel <channel uuid> --reply-to <Event ID "
+        "from the buzz-event block> --content - < /work/.buzz-reply.md. --content takes "
+        "message text or - for stdin, never a file path; never put a multi-line or "
+        "markdown reply inside shell quotes. Post exactly "
         "one reply per request unless asked for more; if a task fails, post the "
         "failure the same way. Tool calls are auto-approved inside your isolated "
         "container, so act carefully and never run destructive commands without an "

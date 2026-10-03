@@ -448,3 +448,13 @@ the patched manager) the pi agent woke and the deployment succeeded
 (`BOOTSTRAP-EXIT=0`). 250 unit tests pass.
 
 GitHub Actions run `36691007334` passed for v0.8.2 (source `964f7537a8f08e1220bfb9b6b89042bff50a87bc`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.2` tags were promoted.
+
+## v0.8.3 — reliable reply delivery
+
+On a live installation Cody executed an owner-approved proposal but its reply
+never arrived: a long markdown reply embedded in shell quotes broke the
+command (and tripped Hermes' nested-command security scan), and the fallback
+passed a file path to `buzz messages send --content`, which posts the path as
+the message. Agent instructions now say to write the reply to a file and send it
+with `--content - < file`. Only `SOUL.md` changes (golden fixtures updated); 250
+unit tests pass.
