@@ -458,3 +458,5 @@ passed a file path to `buzz messages send --content`, which posts the path as
 the message. Agent instructions now say to write the reply to a file and send it
 with `--content - < file`. Only `SOUL.md` changes (golden fixtures updated); 250
 unit tests pass.
+
+GitHub Actions run `37106429344` passed for v0.8.3 (source `c9d16c6ccd8d4e143471bb8171fdfdb031755184`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.3` tags were promoted.
