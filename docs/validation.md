@@ -460,3 +460,13 @@ with `--content - < file`. Only `SOUL.md` changes (golden fixtures updated); 250
 unit tests pass.
 
 GitHub Actions run `37106429344` passed for v0.8.3 (source `c9d16c6ccd8d4e143471bb8171fdfdb031755184`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.3` tags were promoted.
+
+## v0.8.4 — plan-based tools follow the plan's environment
+
+A live release agent froze a `staging` plan but called `propose_deployment`
+without `environment`, which defaulted to `production`; the manager answered
+"Plan outside assigned scope" and the agent concluded its grant was stale.
+`propose_deployment`, `execute_deployment`, `approve_deployment` and
+`get_deployment_operation` now default to the referenced item's environment
+(authorization applies to it as if passed), and an explicit mismatch names the
+item's application/environment. 251 unit tests pass.

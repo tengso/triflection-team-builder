@@ -83,9 +83,9 @@ def propose_deployment(
     application: str,
     plan_id: str,
     source_event_id: str,
-    environment: str = "production",
+    environment: str | None = None,
 ) -> dict:
-    """Publish a frozen plan in the source Buzz thread. Owner replies approve to authorize it."""
+    """Publish a frozen plan in the source Buzz thread. Owner replies approve to authorize it. The environment defaults to the plan's."""
     return call(
         "propose",
         application,
@@ -100,7 +100,7 @@ def execute_deployment(
     application: str,
     plan_id: str,
     source_event_id: str,
-    environment: str = "production",
+    environment: str | None = None,
 ) -> dict:
     """Queue a frozen plan authorized by a direct specific signed owner instruction. Agent messages cannot authorize changes. Returns a job ID; poll get_deployment_operation."""
     return call(
@@ -114,7 +114,7 @@ def execute_deployment(
 
 @server.tool()
 def approve_deployment(
-    application: str, approval_event_id: str, environment: str = "production"
+    application: str, approval_event_id: str, environment: str | None = None
 ) -> dict:
     """Queue exactly the frozen proposal the owner replied approve to. Unrelated approvals are rejected."""
     return call(
@@ -124,7 +124,7 @@ def approve_deployment(
 
 @server.tool()
 def get_deployment_operation(
-    application: str, operation_id: str, environment: str = "production"
+    application: str, operation_id: str, environment: str | None = None
 ) -> dict:
     """Read a persistent deployment job and its timestamped progress. Queued is not success."""
     return call("operation", application, environment, operation_id=operation_id)

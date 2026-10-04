@@ -74,9 +74,9 @@ def handle(manager, path, authorization, body):
     action = body.pop("action")
     if action in ("propose-change", "approve-change"):
         return change(manager, agent, action, body)
-    application, environment = (
-        body.pop("application"),
-        body.pop("environment", "production"),
+    application = body.pop("application")
+    environment = body.pop("environment", None) or inferred_environment(
+        manager, action, body
     )
     key = service.key(application, environment)
     service.authorized(agent, key)
@@ -138,13 +138,13 @@ def handle(manager, path, authorization, body):
     if action == "operation":
         job = service.get("job/" + body["operation_id"])
         if job["application"] != application or job["environment"] != environment:
-            raise ValueError("Operation outside assigned scope")
+            raise ValueError(scope_mismatch("Operation", job))
         return service.public_job(job)
     if action in ("propose", "execute"):
         plan_id = body["plan_id"]
         plan = service.get("plan/" + plan_id)
         if plan["application"] != application or plan["environment"] != environment:
-            raise ValueError("Plan outside assigned scope")
+            raise ValueError(scope_mismatch("Plan", plan))
         with manager.lock:
             source = manager.source(body["source_event_id"], owner=action == "execute")
             member = manager.resource(agent, "agent")
@@ -190,9 +190,51 @@ def handle(manager, path, authorization, body):
                 raise ValueError("Not a deployment proposal")
             plan = service.get("plan/" + operations[0]["plan_id"])
             if plan["application"] != application or plan["environment"] != environment:
-                raise ValueError("Proposal outside assigned scope")
+                raise ValueError(scope_mismatch("Proposal", plan))
             return manager.approve(approval_event_id=body["approval_event_id"])
     raise ValueError("Unknown deployment action")
+
+
+def scope_mismatch(kind, item):
+    return (
+        f"{kind} belongs to {item['application']}/{item['environment']}; "
+        f'call again with application="{item["application"]}" and '
+        f'environment="{item["environment"]}"'
+    )
+
+
+def proposal_plan(manager, approval_event_id):
+    approval = manager.source(approval_event_id, owner=True)
+    replies = [r[0] for r in tags(approval, "e") if len(r) >= 3 and r[2] == "reply"]
+    row = (
+        manager.registry.db.execute(
+            "SELECT body FROM proposals WHERE json_extract(event,'$.id')=?",
+            (replies[0],),
+        ).fetchone()
+        if len(replies) == 1
+        else None
+    )
+    operations = json.loads(row["body"]) if row else []
+    if len(operations) == 1 and operations[0].get("action") == "execute_deployment":
+        return manager.deployments.db.get("plan/" + operations[0]["plan_id"])
+    return None
+
+
+def inferred_environment(manager, action, body):
+    """Take the environment from the referenced plan, job or proposal when omitted.
+
+    Authorization then applies to that environment, exactly as if it were passed.
+    """
+    service = manager.deployments
+    item = None
+    if action in ("propose", "execute") and body.get("plan_id"):
+        item = service.db.get("plan/" + str(body["plan_id"]))
+    elif action == "operation" and body.get("operation_id"):
+        item = service.db.get("job/" + str(body["operation_id"]))
+    elif action == "approve" and body.get("approval_event_id"):
+        with manager.lock:
+            item = proposal_plan(manager, body["approval_event_id"])
+    return item["environment"] if item else "production"
 
 
 def change(manager, agent, action, body):

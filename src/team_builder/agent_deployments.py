@@ -18,6 +18,8 @@ import httpx
 REQUIRED = object()
 URL = "http://manager:8088"
 ENVIRONMENT = ("environment", "production")
+# Plan-, job- and proposal-based commands default to the referenced item's environment.
+FROM_PLAN = ("environment", None)
 
 # MCP tool name -> (manager action, parameters, description, renamed wire keys)
 TOOLS = {
@@ -63,7 +65,7 @@ TOOLS = {
             ("application", REQUIRED),
             ("plan_id", REQUIRED),
             ("source_event_id", REQUIRED),
-            ENVIRONMENT,
+            FROM_PLAN,
         ],
         "Publish a frozen plan in the source Buzz thread for owner approval.",
         {},
@@ -74,20 +76,20 @@ TOOLS = {
             ("application", REQUIRED),
             ("plan_id", REQUIRED),
             ("source_event_id", REQUIRED),
-            ENVIRONMENT,
+            FROM_PLAN,
         ],
         "Queue a frozen plan authorized by a direct signed owner instruction.",
         {},
     ),
     "approve_deployment": (
         "approve",
-        [("application", REQUIRED), ("approval_event_id", REQUIRED), ENVIRONMENT],
+        [("application", REQUIRED), ("approval_event_id", REQUIRED), FROM_PLAN],
         "Queue exactly the frozen proposal the owner replied approve to.",
         {},
     ),
     "get_deployment_operation": (
         "operation",
-        [("application", REQUIRED), ("operation_id", REQUIRED), ENVIRONMENT],
+        [("application", REQUIRED), ("operation_id", REQUIRED), FROM_PLAN],
         "Read a persistent deployment job and its progress. Queued is not success.",
         {},
     ),
@@ -267,7 +269,7 @@ def skill(assignments):
         )
     lines += [
         "",
-        "`--environment` defaults to production; pass it for staging.",
+        "`--environment` defaults to production; pass it for staging. Commands that take a plan, operation or approval default to that item's environment.",
         "",
         "## Rules",
         "",

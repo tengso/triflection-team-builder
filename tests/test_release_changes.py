@@ -402,3 +402,49 @@ def test_release_agents_wake_for_untagged_owner_approvals(
         {"action": "configure_release_agent", "agent": "engineer", "enabled": False}
     )
     assert not rules.exists()
+
+
+def test_plan_based_calls_follow_the_plan_environment(manager, create_ops, monkeypatch):
+    import copy
+
+    from team_builder.deployment_api import inferred_environment
+
+    d = setup(manager)
+    staging = copy.deepcopy(d.get("app/portal/production")["spec"])
+    staging["environment"] = "staging"
+    d.register(staging)
+    release = d.get("release/portal/production/r1")
+    d.release({**release, "environment": "staging"})
+    plan = d.plan("portal", "staging", release="r1")
+    assert inferred_environment(manager, "propose", {"plan_id": plan["plan_id"]}) == (
+        "staging"
+    )
+    assert inferred_environment(manager, "execute", {"plan_id": "unknown"}) == (
+        "production"
+    )
+    agent, channel = engineer(manager, create_ops, monkeypatch)
+    agent["deployments"] = ["portal/production", "portal/staging"]
+    manager.save_agent(agent)
+    # An explicit wrong environment names the right one instead of a bare refusal.
+    with pytest.raises(ValueError, match='environment="staging"'):
+        agent_call(
+            manager,
+            "engineer",
+            "propose",
+            application="portal",
+            environment="production",
+            plan_id=plan["plan_id"],
+            source_event_id="unused",
+        )
+    # Omitted, the staging plan is authorized against the staging grant.
+    agent["deployments"] = ["portal/staging"]
+    manager.save_agent(agent)
+    proposal = agent_call(
+        manager,
+        "engineer",
+        "propose",
+        application="portal",
+        plan_id=plan["plan_id"],
+        source_event_id=message(manager, "Deploy UAT", channel=channel),
+    )
+    assert proposal["state"] == "awaiting_owner_approval"

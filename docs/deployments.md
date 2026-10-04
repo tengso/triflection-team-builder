@@ -139,7 +139,7 @@ Assignment through the dashboard configuration editor is not implemented. Use th
 
 ## Tools available to assigned agents
 
-Every tool takes an `application`; `environment` defaults to `production`. Only assigned scopes are accessible.
+Every tool takes an `application`; `environment` defaults to `production`, except tools that reference a plan, operation or approval (`propose_deployment`, `execute_deployment`, `approve_deployment`, `get_deployment_operation`), which default to that item's environment. Only assigned scopes are accessible.
 
 | MCP tool | Purpose and additional parameters |
 | --- | --- |
