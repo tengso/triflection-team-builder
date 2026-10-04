@@ -470,3 +470,5 @@ without `environment`, which defaulted to `production`; the manager answered
 `get_deployment_operation` now default to the referenced item's environment
 (authorization applies to it as if passed), and an explicit mismatch names the
 item's application/environment. 251 unit tests pass.
+
+GitHub Actions run `37166910182` passed for v0.8.4 (source `d66eda042cb3973fc7986c607ef26760d7dda294`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.4` tags were promoted.
