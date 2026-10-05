@@ -220,6 +220,14 @@ def sync(root, config, request=None, load=None, inspect=None):
                 artifact = artifacts[0]
                 if artifact["size_in_bytes"] > LIMIT:
                     raise ValueError("Release artifact exceeds size limit")
+                # Downloads take minutes; say so, so nobody mistakes it for a skip.
+                state["importing"] = {
+                    "release": f"ci-{run['id']}-{run['run_attempt']}",
+                    "commit": run["head_sha"],
+                    "run_url": run["html_url"],
+                    "started_at": time.time(),
+                }
+                private_write(state_file, state)
                 with tempfile.TemporaryDirectory(
                     prefix="release-", dir=directory
                 ) as tmp:
@@ -296,6 +304,7 @@ def sync(root, config, request=None, load=None, inspect=None):
                                 },
                             },
                         )
+                    state.pop("importing", None)
                     state["imported"] = (state["imported"] + [key])[-200:]
                     state["latest"] = {
                         "release": release_id,
@@ -313,6 +322,7 @@ def sync(root, config, request=None, load=None, inspect=None):
                         + ", ".join(config.environments),
                         flush=True,
                     )
+        state.pop("importing", None)
         state["checked_at"] = time.time()
         (directory / "error.json").unlink(missing_ok=True)
         private_write(state_file, state)
@@ -326,6 +336,13 @@ def record_failure(root, config, exc):
     directory = root / "release-sync" / config.application
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     private_write(directory / "error.json", error)
+    status = directory / "status.json"
+    try:
+        state = json.loads(status.read_text())
+    except (OSError, ValueError):
+        return
+    if state.pop("importing", None):
+        private_write(status, state)
 
 
 def command(args):

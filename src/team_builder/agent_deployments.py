@@ -32,7 +32,7 @@ TOOLS = {
     "list_releases": (
         "releases",
         [("application", REQUIRED), ENVIRONMENT],
-        "List operator-registered immutable releases.",
+        "List registered immutable releases and the CI importer state (importing, current, stale, failed).",
         {},
     ),
     "get_service_logs": (
@@ -431,6 +431,14 @@ inspect, list and preflight tools answer "no access"; that is expected. Start wi
    `approve_configuration_change` (deployment plans: `approve_deployment`) with
    that reply's Event ID. You are woken for every owner `approve` in your
    channels; if it replies to someone else's proposal, do nothing.
+
+## Waiting for a CI release
+
+A merged change appears in `list_releases` a few minutes after its CI workflow
+finishes: the manager polls every two minutes, then downloads and verifies the
+release artifact. Check `ci_import` in the `list_releases` result: `importing`
+names the release being imported (wait), `current` means up to date, and only
+`stale` (no successful poll for ten minutes) or `failed` needs attention.
 
 ## When a notice mentions you
 

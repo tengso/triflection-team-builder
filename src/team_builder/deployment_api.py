@@ -97,14 +97,16 @@ def handle(manager, path, authorization, body):
         }
     if action == "releases":
         with service.lock:
-            return {
-                "releases": [
-                    r
-                    for r in service.db.list("release")
-                    if r["application"] == application
-                    and r["environment"] == environment
-                ]
-            }
+            releases = [
+                r
+                for r in service.db.list("release")
+                if r["application"] == application and r["environment"] == environment
+            ]
+        return {
+            "releases": releases,
+            "ci_import": service.release_sync_status(application),
+            "note": "New CI releases appear a few minutes after the workflow finishes (artifact download and verification). ci_import.state: importing = wait; current = up to date; stale or failed = needs attention.",
+        }
     if action == "automation-status":
         return service.automation.status(application, environment)
     if action == "automation-retry":

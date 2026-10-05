@@ -196,12 +196,24 @@ def test_sync_retry_registers_both_environments_without_deployment(
     monkeypatch.setattr(module, "operator_request", operator)
     monkeypatch.setattr(module, "token_for", lambda *a: "private-test-token")
     monkeypatch.setattr(module, "loaded_image_id", lambda manifest: manifest["image"])
-    docker = Mock()
+    status = tmp_path / "release-sync" / "app" / "status.json"
+    during = []
+    docker = Mock(
+        side_effect=lambda *a, **k: during.append(
+            json.loads(status.read_text()).get("importing")
+        )
+    )
     monkeypatch.setattr(module.subprocess, "run", docker)
     with pytest.raises(RuntimeError):
         module.sync(tmp_path, CONFIG)
+    # The long download/load is visible as an in-progress import, not a skip.
+    assert during[0]["release"] == "ci-123-1" and during[0]["started_at"]
+    assert json.loads(status.read_text())["importing"]["release"] == "ci-123-1"
+    module.record_failure(tmp_path, CONFIG, RuntimeError("interrupted"))
+    assert "importing" not in json.loads(status.read_text())
     result = module.sync(tmp_path, CONFIG)
     assert result["latest"]["release"] == "ci-123-1"
+    assert "importing" not in json.loads(status.read_text())
     count = docker.call_count
     module.sync(tmp_path, CONFIG)
     assert docker.call_count == count

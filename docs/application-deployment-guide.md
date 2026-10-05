@@ -410,7 +410,9 @@ in both environments. Importing alone does not deploy it; an enabled standing po
    have Cody propose `configure_release_sync`. A [host timer](deployments.md#one-time-setup)
    remains an alternative.
 5. Check Mission Control for a registered `ci-<run_id>-<attempt>` release in each
-   environment. If no release is registered, do not ask an agent to deploy it yet.
+   environment. It appears a few minutes after CI finishes; while the importer
+   reports `importing`, wait. If no release is registered, do not ask an agent to
+   deploy it yet.
 
 **Alternative: manually register a verified image.** Build/pull it on the host,
 record the full Git commit and immutable image ID/digest, then follow

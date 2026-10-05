@@ -42,7 +42,7 @@ def inspect_application(application: str, environment: str = "production") -> di
 
 @server.tool()
 def list_releases(application: str, environment: str = "production") -> dict:
-    """List operator-registered immutable releases. Agents cannot register images or executable specifications."""
+    """List registered immutable releases and the CI importer state (importing, current, stale, failed). New CI releases appear a few minutes after the workflow finishes."""
     return call("releases", application, environment)
 
 

@@ -472,3 +472,14 @@ without `environment`, which defaulted to `production`; the manager answered
 item's application/environment. 251 unit tests pass.
 
 GitHub Actions run `37166910182` passed for v0.8.4 (source `d66eda042cb3973fc7986c607ef26760d7dda294`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.4` tags were promoted.
+
+## v0.8.5 — visible CI import progress
+
+A release agent checked `list_releases` while the manager was still downloading
+a new 277 MB release artifact. The importer's `checked_at` only advanced after
+the poll finished, so the agent concluded the new run had been skipped and asked
+for the sync to be reset. The importer now records an `importing` marker
+(release, commit, start time) before downloading; Mission Control and
+`list_releases` (`ci_import`) report state `importing`, cleared on success or
+failure and ignored after 30 minutes if an import crashed. The runbook explains
+the few-minute delay. 252 unit tests pass.

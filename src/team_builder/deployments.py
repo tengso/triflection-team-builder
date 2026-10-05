@@ -76,6 +76,10 @@ def token(secrets, agent=None):
     ).hexdigest()
 
 
+# Seconds after which an unfinished CI import is no longer reported as running.
+IMPORT_STALL = 1800
+
+
 class Deployments:
     def __init__(self, manager, docker=None):
         self.manager = manager
@@ -665,12 +669,27 @@ class Deployments:
                 else {}
             )
             checked = status.get("checked_at")
+            importing = status.get("importing") or {}
+            # A crashed import must not look busy forever.
+            if time.time() - importing.get("started_at", 0) > IMPORT_STALL:
+                importing = {}
             return {
                 "state": "failed"
                 if error
                 else (
-                    "current" if checked and time.time() - checked < 600 else "stale"
+                    "importing"
+                    if importing
+                    else (
+                        "current"
+                        if checked and time.time() - checked < 600
+                        else "stale"
+                    )
                 ),
+                "importing": {
+                    k: importing[k] for k in ("release", "commit", "started_at")
+                }
+                if importing and not error
+                else None,
                 "checked_at": checked,
                 "failed_at": error.get("failed_at"),
                 "error": error.get("error")

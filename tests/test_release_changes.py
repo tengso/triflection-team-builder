@@ -448,3 +448,37 @@ def test_plan_based_calls_follow_the_plan_environment(manager, create_ops, monke
         source_event_id=message(manager, "Deploy UAT", channel=channel),
     )
     assert proposal["state"] == "awaiting_owner_approval"
+
+
+def test_ci_import_progress_is_visible_to_agents_and_dashboard(manager):
+    import time
+
+    from team_builder.storage import private_write
+
+    d = setup(manager)
+    agent = manager.resource("coa", "agent")
+    agent["deployments"] = ["portal/production"]
+    manager.save_agent(agent)
+    directory = manager.root / "release-sync" / "portal"
+    directory.mkdir(parents=True)
+    now = time.time()
+    importing = {"release": "ci-9-1", "commit": "a" * 40, "started_at": now - 60}
+    private_write(
+        directory / "status.json", {"checked_at": now - 200, "importing": importing}
+    )
+    status = d.release_sync_status("portal")
+    assert status["state"] == "importing" and status["importing"]["release"] == "ci-9-1"
+    result = agent_call(
+        manager, "coa", "releases", application="portal", environment="production"
+    )
+    assert result["ci_import"]["state"] == "importing"
+    assert "few minutes" in result["note"] and result["releases"]
+    # A crashed import stops being reported as running.
+    importing["started_at"] = now - 7200
+    private_write(
+        directory / "status.json", {"checked_at": now - 7200, "importing": importing}
+    )
+    assert d.release_sync_status("portal")["state"] == "stale"
+    assert d.release_sync_status("portal")["importing"] is None
+    private_write(directory / "status.json", {"checked_at": now - 30})
+    assert d.release_sync_status("portal")["state"] == "current"
