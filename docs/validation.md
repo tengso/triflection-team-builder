@@ -483,3 +483,5 @@ for the sync to be reset. The importer now records an `importing` marker
 `list_releases` (`ci_import`) report state `importing`, cleared on success or
 failure and ignored after 30 minutes if an import crashed. The runbook explains
 the few-minute delay. 252 unit tests pass.
+
+GitHub Actions run `37258051396` passed for v0.8.5 (source `339dd6e16dd358ee7701c0d73e4ba897cd47dc26`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.5` tags were promoted.
