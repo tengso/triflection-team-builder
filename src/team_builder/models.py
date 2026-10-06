@@ -240,10 +240,17 @@ class ConfigureReleaseSync(Operation):
 
 
 class ConfigureReleasePolicy(Operation):
-    """Register, change, enable or pause an automatic UAT/production release policy."""
+    """Register, change, enable or pause an automatic UAT/production release policy.
+
+    The policy is replaced as a whole, so agent proposals name the live policy
+    version they were written against ("" when none exists yet). A proposal
+    approved after the policy changed is rejected instead of silently undoing
+    the newer change.
+    """
 
     action: Literal["configure_release_policy"]
     policy: dict
+    expected_version: Annotated[str, Field(max_length=64)] | None = None
 
 
 class ConfigureReleaseAgent(Operation):

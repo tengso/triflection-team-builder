@@ -70,6 +70,37 @@ def validate_operations(operations):
     return operations
 
 
+def policy_version(service, application):
+    current = service.db.get("automation-policy/" + application)
+    return current["version"] if current else ""
+
+
+def assert_current_policies(service, operations, *, required=False):
+    """Refuse policy replacements written against an outdated policy version."""
+    for index, op in enumerate(operations):
+        if op["action"] != "configure_release_policy":
+            continue
+        app = op["policy"].get("application")
+        expected = op.get("expected_version")
+        current = policy_version(service, app)
+        if expected is None:
+            if required:
+                raise ValueError(
+                    f"operations[{index}] configure_release_policy needs expected_version: "
+                    f'the live policy version from inspect_release_automation ("{current}"; '
+                    '"" when no policy exists). The policy is replaced as a whole, so copy '
+                    "every other field from the live policy."
+                )
+            continue
+        if expected != current:
+            raise ValueError(
+                f"operations[{index}] configure_release_policy was written against policy "
+                f'version "{expected}", but the live policy for {app} is now "{current}". '
+                "Nothing was changed. Re-read the policy with inspect_release_automation "
+                "and propose again with the current fields and expected_version."
+            )
+
+
 def check_scope(service, agent_id, operations):
     """Limit an agent's proposals to applications it operates or introduces."""
     agent = service.manager.resource(agent_id, "agent")
@@ -101,6 +132,7 @@ def check_scope(service, agent_id, operations):
                 raise ValueError("Change is outside your deployment scope")
         elif app not in granted_apps:
             raise ValueError("Change is outside your deployment scope")
+    assert_current_policies(service, operations, required=True)
     return operations
 
 
@@ -132,6 +164,7 @@ def apply_change(service, op):
     if action == "configure_release_sync":
         return configure_sync(service, op)
     if action == "configure_release_policy":
+        assert_current_policies(service, [op])
         return service.automation.configure(op["policy"])
     if action == "configure_release_agent":
         return release_agent(service, op["agent"], op.get("enabled", True))

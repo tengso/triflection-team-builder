@@ -482,3 +482,99 @@ def test_ci_import_progress_is_visible_to_agents_and_dashboard(manager):
     assert d.release_sync_status("portal")["importing"] is None
     private_write(directory / "status.json", {"checked_at": now - 30})
     assert d.release_sync_status("portal")["state"] == "current"
+
+
+def test_stale_policy_proposals_are_rejected_without_side_effects(
+    manager, create_ops, monkeypatch
+):
+    _, channel = engineer(manager, create_ops, monkeypatch, release_agent=True)
+    d = manager.deployments
+    profile = {
+        "action": "register_profile",
+        "application": "ledger",
+        "environment": "production",
+        "profile": {"id": "standard-v1", "values": {"DB_HOST": "ledger-db"}},
+    }
+    policy = {
+        "application": "ledger",
+        "staging_agent": "engineer",
+        "production_agent": "engineer",
+        "staging_profile": "standard-v1",
+        "production_profile": "standard-v1",
+        "checks": [{"id": "acceptance", "service": "api", "command": ["true"]}],
+    }
+
+    def propose(operations):
+        source = message(manager, "Change the release policy", channel=channel)
+        return agent_call(
+            manager,
+            "engineer",
+            "propose-change",
+            source_event_id=source,
+            operations=operations,
+        )["message_id"]
+
+    def approve(proposal):
+        reply = message(manager, "approve", channel=channel, reply=proposal)
+        return agent_call(
+            manager, "engineer", "approve-change", approval_event_id=reply
+        )
+
+    # First policy: agents must say they expect none to exist yet.
+    first = {"action": "configure_release_policy", "policy": policy}
+    with pytest.raises(ValueError, match="expected_version"):
+        propose([*setup_operations(), profile, first])  # no expected_version
+    production_access = {
+        "action": "configure_deployment_access",
+        "agent": "engineer",
+        "application": "ledger",
+        "environment": "production",
+    }
+    setup = [*setup_operations(), production_access, profile]
+    assert approve(propose([*setup, {**first, "expected_version": ""}]))["state"] == (
+        "complete"
+    )
+    v1 = d.db.get("automation-policy/ledger")["version"]
+
+    # Two proposals written against the same live version.
+    a = propose(
+        [
+            {
+                "action": "configure_release_policy",
+                "expected_version": v1,
+                "policy": {**policy, "staging_diagnostics": "summary"},
+            }
+        ]
+    )
+    b = propose(
+        [
+            {**profile, "profile": {"id": "standard-v2", "values": {"DB_HOST": "x"}}},
+            {
+                "action": "configure_release_policy",
+                "expected_version": v1,
+                "policy": {**policy, "production_diagnostics": "summary"},
+            },
+        ]
+    )
+    assert approve(a)["state"] == "complete"
+    live = d.db.get("automation-policy/ledger")
+    assert live["version"] != v1 and live["staging_diagnostics"] == "summary"
+
+    # B would silently undo A's change: refused, and its profile is not registered.
+    with pytest.raises(ValueError, match="Nothing was changed") as caught:
+        approve(b)
+    assert live["version"] in str(caught.value)
+    assert d.db.get("automation-policy/ledger") == live
+    assert not d.db.get("profile/ledger/production/standard-v2")
+
+    # Proposing against an outdated version fails fast, too.
+    with pytest.raises(ValueError, match="Re-read the policy"):
+        propose(
+            [
+                {
+                    "action": "configure_release_policy",
+                    "expected_version": v1,
+                    "policy": policy,
+                }
+            ]
+        )

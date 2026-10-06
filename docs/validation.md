@@ -498,3 +498,14 @@ Probe Docker calls now allow 120 s each, deployments wait up to 300 s for health
 300 s per MCP tool call). 253 unit tests pass.
 
 GitHub Actions run `37454927473` passed for v0.8.6 (source `852eed576b911e80499e51a200791c1dcbb74cf7`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.6` tags were promoted.
+
+## v0.8.7 — stale release-policy proposals are rejected
+
+On `research`, the production agent froze a whole-policy replacement at 11:12
+(changing `production_profile`), the UAT agent's change of `staging_profile`
+to `runtime-v6` was approved first, and the owner's later approval of the older
+proposal silently reverted staging to `runtime-v5`. Policy changes now carry
+`expected_version`; agent proposals must include it (`""` for a first policy),
+a stale version is refused at proposal time, and at approval every policy change
+in the proposal is checked before any of its operations runs, so a stale
+proposal changes nothing. 254 unit tests pass.

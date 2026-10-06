@@ -554,6 +554,18 @@ class Manager:
             raise ValueError("Approval replies must execute their frozen proposal")
         operations = validate(operations)
         self.registry.bind(source_event_id, operations)
+        pending = [
+            op
+            for index, op in enumerate(operations)
+            if self.registry.operation(source_event_id + "/" + str(index), op)["state"]
+            != "done"
+        ]
+        if any(op["action"] == "configure_release_policy" for op in pending):
+            from .release_changes import assert_current_policies
+
+            # Before any operation runs, so a stale proposal changes nothing.
+            with self.deployments.lock:
+                assert_current_policies(self.deployments, pending)
         results = []
         for index, op in enumerate(operations):
             identifier = source_event_id + "/" + str(index)

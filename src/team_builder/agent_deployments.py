@@ -429,6 +429,11 @@ inspect, list and preflight tools answer "no access"; that is expected. Start wi
    `configure_release_policy` with `enabled: true`, both agents, the profiles,
    checks calling the acceptance entrypoint, the shared notification channel,
    `production_rollback` and the diagnostics settings.
+   A policy change replaces the whole policy: read it with
+   `inspect_release_automation` right before proposing, copy every field you
+   are not changing, and set `expected_version` to its `policy.version` (`""`
+   when no policy exists). If another policy change is approved first, yours is
+   rejected unchanged; re-read and propose again.
 6. When the owner replies `approve` to your own proposal, call
    `approve_configuration_change` (deployment plans: `approve_deployment`) with
    that reply's Event ID. You are woken for every owner `approve` in your

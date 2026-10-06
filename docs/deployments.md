@@ -49,7 +49,7 @@ after a partial failure.
 | `generate_credential` `{application, environment, id, rotate}` | Creates a generated secret such as an API token. Supplied secrets stay operator-only. |
 | `attach_dependency` `{application, environment, container, alias}` | Connects an existing host container (for example a database) to the application network under a DNS alias. Team Builder containers, privileged containers and containers with the Docker socket are refused. Recorded attachments are restored before preflight and deployment, e.g. after a database container is recreated. |
 | `configure_release_sync` `{application, repository, credential, workflow, branch, environments, services, enabled}` | Lets the manager import verified CI releases every two minutes (no host timer). `credential` names a stored GitHub credential. |
-| `configure_release_policy` `{policy}` | Registers, changes, enables or pauses the automatic release policy. |
+| `configure_release_policy` `{policy, expected_version}` | Registers, changes, enables or pauses the automatic release policy. The policy is replaced as a whole; agent proposals must name the live policy version they were written against (`""` if none). If the policy changes before approval, the proposal is rejected and nothing in it is applied. |
 | `configure_deployment_access` `{agent, application, environment, allowed}` | Grants or revokes deployment access, including for another agent. |
 
 What remains for the operator: `team-builder github-credential NAME` for the
