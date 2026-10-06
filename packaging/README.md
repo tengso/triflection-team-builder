@@ -2,7 +2,7 @@
 
 Repository: https://github.com/tengso/triflection-team-builder
 
-Release `0.8.5` is public and supports anonymous pulls, including the `pi`,
+Release `0.8.6` is public and supports anonymous pulls, including the `pi`,
 `codex` and `devin` runtime images. The installer pins the
 verified image digests in `src/team_builder/resources/images.json`. The release
 includes an installer wheel and an `images.json` manifest with the build commit.

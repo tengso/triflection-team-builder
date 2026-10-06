@@ -496,3 +496,5 @@ the container was up), blocking preflight, deployments and the release policy.
 Probe Docker calls now allow 120 s each, deployments wait up to 300 s for health
 (was 120 s), and the agent MCP/CLI clients allow 240 s per request (Hermes allows
 300 s per MCP tool call). 253 unit tests pass.
+
+GitHub Actions run `37454927473` passed for v0.8.6 (source `852eed576b911e80499e51a200791c1dcbb74cf7`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.6` tags were promoted.
