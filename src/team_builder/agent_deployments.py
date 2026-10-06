@@ -215,13 +215,15 @@ def main(argv=None, transport=None):
     args = parser().parse_args(argv)
     token = Path(os.environ["DEPLOYMENT_TOKEN_FILE"]).read_text().strip()
     try:
-        with httpx.Client(
-            base_url=URL,
-            headers={"Authorization": "Bearer " + token},
-            timeout=30,
-            trust_env=False,
-            transport=transport,
-        ) as client:
+        with (
+            httpx.Client(
+                base_url=URL,
+                headers={"Authorization": "Bearer " + token},
+                timeout=240,  # preflight probes are slow on busy hosts; Hermes allows 300 s per tool call
+                trust_env=False,
+                transport=transport,
+            ) as client
+        ):
             result = client.post("/deployments", json=request(args))
     except httpx.HTTPError as error:
         print(

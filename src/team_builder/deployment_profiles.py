@@ -22,6 +22,11 @@ Target = Annotated[
     ),
 ]
 
+# Seconds allowed per Docker call of a connectivity probe. Generous because a
+# probe starts a helper container, which takes tens of seconds on a host with
+# slow disk; a reachable dependency still answers within the 3 s socket timeout.
+PROBE_TIMEOUT = 120
+
 
 class Connection(Strict):
     id: Slug
@@ -287,7 +292,7 @@ class Profiles:
         identifier = None
         try:
             network = self.service.name(app)
-            observed = docker.call("GET", "/networks/" + network, timeout=5)
+            observed = docker.call("GET", "/networks/" + network, timeout=PROBE_TIMEOUT)
             if observed:
                 if any(
                     observed.get("Labels", {}).get(k) != v
@@ -299,7 +304,7 @@ class Profiles:
                     "POST",
                     "/networks/create",
                     json={"Name": network, "Labels": self.service.labels(app)},
-                    timeout=5,
+                    timeout=PROBE_TIMEOUT,
                 )
             image = (
                 self.service.manager.config.get("manager_image")
@@ -331,11 +336,13 @@ class Profiles:
                 },
             }
             identifier = docker.call(
-                "POST", "/containers/create", json=spec, timeout=5
+                "POST", "/containers/create", json=spec, timeout=PROBE_TIMEOUT
             )["Id"]
-            docker.call("POST", "/containers/" + identifier + "/start", timeout=5)
+            docker.call(
+                "POST", "/containers/" + identifier + "/start", timeout=PROBE_TIMEOUT
+            )
             result = docker.call(
-                "POST", "/containers/" + identifier + "/wait", timeout=8
+                "POST", "/containers/" + identifier + "/wait", timeout=PROBE_TIMEOUT
             )
             return result.get("StatusCode") == 0
         except Exception:  # noqa: BLE001 -- do not expose Docker diagnostics
@@ -344,7 +351,9 @@ class Profiles:
             if identifier:
                 try:
                     docker.call(
-                        "DELETE", "/containers/" + identifier + "?force=true", timeout=5
+                        "DELETE",
+                        "/containers/" + identifier + "?force=true",
+                        timeout=PROBE_TIMEOUT,
                     )
                 except Exception:  # noqa: BLE001 -- no raw Docker errors
                     return False

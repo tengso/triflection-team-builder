@@ -7,6 +7,7 @@ from conftest import message
 from test_deployments import setup
 
 from team_builder.deployment_api import handle
+from team_builder.deployment_profiles import PROBE_TIMEOUT
 from team_builder.deployments import token
 
 
@@ -187,7 +188,8 @@ def test_probe_is_scoped_bounded_and_has_no_credentials(manager):
 
     def call(method, path, **kw):
         calls.append((method, path, kw))
-        assert kw["timeout"] <= 8
+        # Bounded, but long enough for a helper container on a slow-disk host.
+        assert 60 <= kw["timeout"] <= PROBE_TIMEOUT
         if path.startswith("/networks/"):
             return {"Labels": d.labels(app)}
         if path == "/containers/create":
@@ -223,3 +225,21 @@ def test_health_reasons_never_return_raw_probe_output(manager):
     assert "private" not in d.health_reason(state, {})
     state["Health"]["Log"][0]["Output"] = "private value HTTP Error 401"
     assert d.health_reason(state, {}) == "Health endpoint rejected authentication (401)"
+
+
+def test_readiness_waits_minutes_for_slow_hosts(manager, monkeypatch):
+    from team_builder import deployments as module
+
+    d = setup(manager)
+    app = d.get("app/portal/production")
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s)
+    )
+    states = iter(["starting"] * 100 + ["healthy"] * 1000)
+    monkeypatch.setattr(
+        d, "inspect", lambda *_: {"State": {"Health": {"Status": next(states)}}}
+    )
+    d.wait_ready(app)  # healthy after ~200 s: beyond the old 120 s limit
+    assert 120 < clock[0] < module.READINESS_TIMEOUT

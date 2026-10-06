@@ -9,7 +9,7 @@ server = FastMCP("Production operations")
 client = httpx.Client(
     base_url="http://manager:8088",
     headers={"Authorization": "Bearer " + os.environ["DEPLOYMENT_TOKEN"]},
-    timeout=30,
+    timeout=240,  # preflight probes are slow on busy hosts; Hermes allows 300 s per tool call
     trust_env=False,
 )
 

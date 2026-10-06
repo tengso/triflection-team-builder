@@ -508,3 +508,6 @@ recheck policy before touching containers. A job already applying a release may
 finish; pausing does not stop application containers. Changing checks or profile
 selection creates a new policy version and invalidates older queued authority.
 Manual frozen proposals remain available when automatic policy is disabled.
+
+
+Connection checks start a short-lived helper container on the application network. Each Docker step of that probe may take up to two minutes, so checks also work on hosts with slow disks (where starting a container can take most of a minute); a reachable dependency still answers within three seconds. After installing a release, a deployment waits up to five minutes for every service to report healthy. Agent deployment tools allow four minutes per request for the same reason.

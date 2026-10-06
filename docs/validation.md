@@ -485,3 +485,14 @@ failure and ignored after 30 minutes if an import crashed. The runbook explains
 the few-minute delay. 252 unit tests pass.
 
 GitHub Actions run `37258051396` passed for v0.8.5 (source `339dd6e16dd358ee7701c0d73e4ba897cd47dc26`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.5` tags were promoted.
+
+## v0.8.6 — tolerate slow Docker hosts
+
+On `research`, a shared host with a saturated disk, starting any container took
+45–49 s. Connection-check probes allowed Docker 5 s to create, 5 s to start and
+8 s to finish the helper container, so every TCP check reported a reachable
+database as failed (verified by hand: the same connection succeeded in 2 ms once
+the container was up), blocking preflight, deployments and the release policy.
+Probe Docker calls now allow 120 s each, deployments wait up to 300 s for health
+(was 120 s), and the agent MCP/CLI clients allow 240 s per request (Hermes allows
+300 s per MCP tool call). 253 unit tests pass.

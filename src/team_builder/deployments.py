@@ -78,6 +78,9 @@ def token(secrets, agent=None):
 
 # Seconds after which an unfinished CI import is no longer reported as running.
 IMPORT_STALL = 1800
+# Seconds a deployment waits for every service to report healthy; slow hosts
+# need minutes to start containers after replacing them.
+READINESS_TIMEOUT = 300
 
 
 class Deployments:
@@ -528,7 +531,8 @@ class Deployments:
                 self.name(app, sid), spec, generation([release["id"], spec])
             )
 
-    def wait_ready(self, app, timeout=120):
+    def wait_ready(self, app, timeout=None):
+        timeout = timeout or READINESS_TIMEOUT
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if all(
