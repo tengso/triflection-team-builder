@@ -509,3 +509,5 @@ proposal silently reverted staging to `runtime-v5`. Policy changes now carry
 a stale version is refused at proposal time, and at approval every policy change
 in the proposal is checked before any of its operations runs, so a stale
 proposal changes nothing. 254 unit tests pass.
+
+GitHub Actions run `37464070894` passed for v0.8.7 (source `3df5c381c7d155c16708d0bc04cc321a701bf29a`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.7` tags were promoted.
