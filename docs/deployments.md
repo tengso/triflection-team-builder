@@ -153,7 +153,7 @@ Every tool takes an `application`; `environment` defaults to `production`, excep
 | `propose_configuration_change` | Publish a frozen release-setup proposal (`source_event_id`, `operations`); see Agent-led setup. No `application` parameter. |
 | `approve_configuration_change` | Execute the configuration proposal referenced by the owner's `approval_event_id`. |
 | `plan_deployment` | Freeze a plan with `operation` (`deploy`, `restart`, or `rollback`), `release` and optional `profile` for deploy, and optional `service` for restart. Does not execute changes. |
-| `list_environment_profiles` | List available profile/reference names and the last preflight result. No values are returned. |
+| `list_environment_profiles` | List profiles with their non-secret `values` (hosts, ports, names, flags) and connection checks, secret reference names, and the last preflight result. Credential values are never returned. Profiles are immutable: copy one completely when registering a new profile ID. |
 | `check_deployment_preflight` | Check credentials, required settings/files and TCP dependencies for an optional `profile`. |
 | `plan_environment_configuration` | Freeze a `profile`; include `release` to apply configuration and deploy in one approved operation. |
 | `propose_deployment` | Publish the frozen `plan_id` for approval in the thread identified by `source_event_id`. |
@@ -511,3 +511,5 @@ Manual frozen proposals remain available when automatic policy is disabled.
 
 
 Connection checks start a short-lived helper container on the application network. Each Docker step of that probe may take up to two minutes, so checks also work on hosts with slow disks (where starting a container can take most of a minute); a reachable dependency still answers within three seconds. After installing a release, a deployment waits up to five minutes for every service to report healthy. Agent deployment tools allow four minutes per request for the same reason.
+
+If the manager refuses a host-side `team-builder deployment` request, the command prints the manager's reason (for example `Error: Credential exists; explicitly rotate it`) and exits with status 1; these messages never contain submitted values. A Docker or connectivity problem is reported separately.

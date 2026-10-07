@@ -55,34 +55,53 @@ def command(args):
     )
 
 
+REJECTED = 3  # exit code of the in-container script when the manager refuses
+
+
 def operator_request(root, request):
-    from .cli import run
+    import subprocess
 
     script = """import json,sys,httpx
 from pathlib import Path
 from team_builder.deployments import token
 secrets=json.loads(Path('/state/secrets.json').read_text())
-with httpx.Client(trust_env=False,timeout=60) as client:
+with httpx.Client(trust_env=False,timeout=300) as client:
     response=client.post('http://127.0.0.1:8088/operator/deployments',headers={'Authorization':'Bearer '+token(secrets)},json=json.load(sys.stdin))
     if response.status_code!=200:
-        raise SystemExit('Deployment request rejected; verify request and manager health')
+        try:
+            error=response.json().get('error')
+        except ValueError:
+            error=None
+        print(json.dumps({'error':error or 'Deployment request rejected; verify request and manager health'}))
+        raise SystemExit(3)
     print(json.dumps(response.json(),indent=2))
 """
-    return json.loads(
-        run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                str(root / "compose.yaml"),
-                "exec",
-                "-T",
-                "manager",
-                "/opt/hermes/.venv/bin/python",
-                "-c",
-                script,
-            ],
-            input=json.dumps(request),
-            timeout=70,
-        )
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(root / "compose.yaml"),
+            "exec",
+            "-T",
+            "manager",
+            "/opt/hermes/.venv/bin/python",
+            "-c",
+            script,
+        ],
+        input=json.dumps(request),
+        capture_output=True,
+        text=True,
+        timeout=320,
+        check=False,
     )
+    if result.returncode == REJECTED:
+        # The manager's own message names the problem and never contains values.
+        raise ValueError(json.loads(result.stdout)["error"])
+    if result.returncode:
+        raise RuntimeError(
+            "Could not reach the manager through docker compose (exit "
+            f"{result.returncode}); check that the installation is running "
+            "(docker compose ps) and that you can use Docker"
+        )
+    return json.loads(result.stdout)

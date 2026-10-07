@@ -243,3 +243,30 @@ def test_readiness_waits_minutes_for_slow_hosts(manager, monkeypatch):
     )
     d.wait_ready(app)  # healthy after ~200 s: beyond the old 120 s limit
     assert 120 < clock[0] < module.READINESS_TIMEOUT
+
+
+def test_profile_listing_shows_settings_but_never_credentials(manager):
+    d, p, _ = provision(manager)
+    listed = p.list("portal", "production")["profiles"]
+    assert listed[0]["values"] == {"BACKEND": "rest"}
+    assert listed[0]["connections"] == [] and listed[0]["secret_refs"] == {
+        "API_KEY": "api-key"
+    }
+    shown = json.dumps(listed)
+    assert "private-api-secret" not in shown and "private-login-file" not in shown
+    # Agents get the same view through their deployment tools.
+    agent = d.manager.resource("coa", "agent")
+    agent["deployments"] = ["portal/production"]
+    d.manager.save_agent(agent)
+    via_agent = handle(
+        d.manager,
+        "/deployments",
+        "Bearer " + token(d.manager.secrets, "coa"),
+        {
+            "agent": "coa",
+            "action": "profiles",
+            "application": "portal",
+            "environment": "production",
+        },
+    )
+    assert via_agent["profiles"][0]["values"] == {"BACKEND": "rest"}

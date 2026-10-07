@@ -134,7 +134,7 @@ def get_deployment_operation(
 def list_environment_profiles(
     application: str, environment: str = "production"
 ) -> dict:
-    """List operator-approved profiles, secret reference names and last preflight. Never returns values."""
+    """List profiles with their non-secret values (hosts, ports, names, flags), connection checks, secret reference names and last preflight. Never returns credential values. Copy a profile completely when registering a new profile ID."""
     return call("profiles", application, environment)
 
 

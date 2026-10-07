@@ -666,7 +666,16 @@ def main():
     if args.command == "deployment":
         from .deployment_cli import command
 
-        command(args)
+        try:
+            command(args)
+        except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            message = (
+                str(exc)
+                if type(exc) in (ValueError, RuntimeError)
+                else f"Deployment request failed ({type(exc).__name__})"
+            )
+            print("Error: " + message, file=sys.stderr)
+            raise SystemExit(1) from None
         return
     try:
         if args.command == "proxy":

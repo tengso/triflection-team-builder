@@ -84,7 +84,7 @@ was persuaded.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.7/buzz_team_builder-0.8.7-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.8/buzz_team_builder-0.8.8-py3-none-any.whl'
 team-builder init --bind 0.0.0.0 --port 3100
 ```
 
@@ -361,7 +361,7 @@ PM owns the team; a quant developer joins as a human member.
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.7/buzz_team_builder-0.8.7-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.8/buzz_team_builder-0.8.8-py3-none-any.whl'
 printf '%s\n' 'sk-or-v1-…' > ~/openrouter.key && chmod 600 ~/openrouter.key
 # owner.key holds the PM's Nostr secret (hex or nsec)
 team-builder init --non-interactive --name "Alpha Desk" \

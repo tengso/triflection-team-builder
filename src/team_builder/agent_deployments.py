@@ -96,7 +96,7 @@ TOOLS = {
     "list_environment_profiles": (
         "profiles",
         [("application", REQUIRED), ENVIRONMENT],
-        "List operator-approved profiles, secret reference names and last preflight. Never returns values.",
+        "List profiles with their non-secret values (hosts, ports, names, flags), connection checks, secret reference names and last preflight. Never returns credential values. Copy a profile completely when registering a new profile ID.",
         {},
     ),
     "check_deployment_preflight": (
@@ -457,6 +457,10 @@ names the release being imported (wait), `current` means up to date, and only
      request. After merge, CI publishes a new release that the policy picks up;
      do not retry the broken release.
    - Wrong configuration: propose a new profile ID and the policy change.
+     Profiles are immutable and never merged: read the current one with
+     `list_environment_profiles` (it includes the non-secret values) and copy
+     every value, secret reference, file, required variable and connection
+     check into the new ID before changing what you need.
    - Dependency unreachable: check attachments; propose `attach_dependency`.
    - Transient failure: `verify_release_checks`; if it passes,
      `retry_automatic_release` (at most two retries per run).

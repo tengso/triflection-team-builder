@@ -149,9 +149,27 @@ class Profiles:
             app = self.service.get("app/" + key)
             preflight = self.service.db.get("preflight/" + key)
         return {
-            "profiles": profiles,
+            "profiles": [self.readable(p) for p in profiles],
             "active": app.get("configuration", {}).get("profile"),
             "preflight": preflight,
+        }
+
+    def readable(self, public):
+        """Add the non-secret settings so a new profile ID can copy the old one.
+
+        Credential values live only in referenced credential files; a profile's
+        `values` are hosts, ports, names and flags by design.
+        """
+        path = self.directory(public["application"], public["environment"]) / (
+            public["id"] + ".json"
+        )
+        if not path.is_file():
+            return public
+        profile = json.loads(path.read_text())
+        return {
+            **public,
+            "values": profile["values"],
+            "connections": profile["connections"],
         }
 
     def binding(self, application, environment, profile):

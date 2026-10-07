@@ -511,3 +511,15 @@ in the proposal is checked before any of its operations runs, so a stale
 proposal changes nothing. 254 unit tests pass.
 
 GitHub Actions run `37464070894` passed for v0.8.7 (source `3df5c381c7d155c16708d0bc04cc321a701bf29a`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.7` tags were promoted.
+
+## v0.8.8 — readable profiles and clear host-side errors
+
+On `research`, agents could not change a profile without the owner: profiles are
+immutable and each new ID must be complete, but `list_environment_profiles`
+returned only variable names, so the release agents asked the owner to supply
+every host, port and name. It now also returns each profile's non-secret
+`values` and connection checks (credential values stay in credential files).
+Separately, `team-builder deployment` turned every manager refusal into
+"docker compose failed (exit 1)" with a traceback; it now prints the manager's
+reason (e.g. "Credential exists; explicitly rotate it") and exits 1, and reports
+Docker/connectivity problems separately. 257 unit tests pass.
