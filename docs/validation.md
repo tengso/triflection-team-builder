@@ -523,3 +523,5 @@ Separately, `team-builder deployment` turned every manager refusal into
 "docker compose failed (exit 1)" with a traceback; it now prints the manager's
 reason (e.g. "Credential exists; explicitly rotate it") and exits 1, and reports
 Docker/connectivity problems separately. 257 unit tests pass.
+
+GitHub Actions run `37595509676` passed for v0.8.8 (source `8c68f88eeee05e3af14b13800f69539609221e18`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.8` tags were promoted.
