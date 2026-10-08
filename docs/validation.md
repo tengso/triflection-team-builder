@@ -525,3 +525,13 @@ reason (e.g. "Credential exists; explicitly rotate it") and exits 1, and reports
 Docker/connectivity problems separately. 257 unit tests pass.
 
 GitHub Actions run `37595509676` passed for v0.8.8 (source `8c68f88eeee05e3af14b13800f69539609221e18`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.8` tags were promoted.
+
+## v0.8.9 — profile and secret management in Mission Control
+
+Owners can view, copy-and-edit (as a new ID), preflight and select release
+profiles, redeploy the current release with a profile, and store, replace,
+generate and (after re-entering the access key, sharing the login throttle)
+reveal secrets in Mission Control. Every change and reveal is audited without
+values. Covered by HTTP-level tests (session and same-origin boundary, the
+full profile/secret lifecycle, reveal and its throttle, stale policy pages,
+idempotent redeploy) and a browser pass over every flow. 262 unit tests pass.

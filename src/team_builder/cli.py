@@ -513,7 +513,9 @@ def parser():
     )
     sync.add_argument("config_file")
     sync.add_argument("--state-dir", default="~/.local/state/team-builder/default")
-    dashboard = sub.add_parser("dashboard", help="Configure read-only Mission Control")
+    dashboard = sub.add_parser(
+        "dashboard", help="Configure the Mission Control owner dashboard"
+    )
     dashboard_sub = dashboard.add_subparsers(dest="dashboard_command", required=True)
     for action in ("enable", "status", "disable", "rotate-key"):
         item = dashboard_sub.add_parser(action)
@@ -651,7 +653,7 @@ def parser():
     command.add_argument(
         "--dashboard",
         action="store_true",
-        help="Enable read-only Mission Control after setup",
+        help="Enable the Mission Control owner dashboard after setup",
     )
     return parser
 
@@ -802,7 +804,7 @@ with httpx.Client(trust_env=False,timeout=900) as client:
             )
         elif not args.non_interactive:
             print(
-                "Optional: enable read-only Mission Control with team-builder dashboard enable --state-dir "
+                "Optional: enable the Mission Control owner dashboard with team-builder dashboard enable --state-dir "
                 + args.state_dir
             )
     except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:

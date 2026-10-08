@@ -28,7 +28,7 @@ complete worked example: a small financial data analysis team.
 | **Manager** | A trusted host service that owns the Docker socket and the installation state. Every mutation goes through it; it verifies owner signatures itself and never trusts an agent's word. |
 | **Proposal** | A frozen, exact list of operations: team changes posted by COA in the office, or deployment plans posted by an assigned release agent in its own channel. The owner replies `approve` directly to it to execute it as written. |
 | **Release policy** | An operator-enabled standing authorization for an application: the manager deploys each verified CI release to UAT, runs acceptance checks, and promotes the same images to production, with release agents investigating failures (section 9). |
-| **Mission Control** | An optional read-only web dashboard (agent health, channels, projects, operations) with a configuration editor for agents. |
+| **Mission Control** | An optional owner web dashboard (agent health, channels, projects, operations) with a configuration editor for agents, and management of application profiles and secrets. |
 | **Credential** | A named secret (`team-builder credential NAME`) stored privately on the host. Agents receive it as an environment variable or MCP header; its value never appears in chat, proposals, or the dashboard. |
 
 ### How a conversation turns into a team change
@@ -84,7 +84,7 @@ was persuaded.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.8/buzz_team_builder-0.8.8-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.9/buzz_team_builder-0.8.9-py3-none-any.whl'
 team-builder init --bind 0.0.0.0 --port 3100
 ```
 
@@ -361,7 +361,7 @@ PM owns the team; a quant developer joins as a human member.
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.8/buzz_team_builder-0.8.8-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.9/buzz_team_builder-0.8.9-py3-none-any.whl'
 printf '%s\n' 'sk-or-v1-…' > ~/openrouter.key && chmod 600 ~/openrouter.key
 # owner.key holds the PM's Nostr secret (hex or nsec)
 team-builder init --non-interactive --name "Alpha Desk" \

@@ -1,4 +1,4 @@
-"""Mission Control observations, owner sessions, and scoped agent restart."""
+"""Mission Control observations, owner sessions, agent actions and profile management."""
 
 import json
 import re
@@ -21,7 +21,9 @@ ASSETS = {
         "text/javascript; charset=utf-8",
     ),
     "/dashboard/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8"),
+    "/dashboard/profiles.js": ("profiles.js", "text/javascript; charset=utf-8"),
 }
+MANAGE = PREFIX + "/deployments/manage"
 
 
 def serve(observer, address=("0.0.0.0", 8089)):
@@ -134,6 +136,28 @@ def serve(observer, address=("0.0.0.0", 8089)):
             if url.path == PREFIX + "/deployments":
                 self.reply(200, observer.manager.deployments.read())
                 return
+            if url.path == MANAGE:
+                from .dashboard_profiles import error_message, overview
+
+                try:
+                    query = parse_qs(url.query, strict_parsing=True)
+                    if set(query) != {"application", "environment"} or any(
+                        len(v) != 1 for v in query.values()
+                    ):
+                        raise ValueError("Choose an application and environment")
+                    self.reply(
+                        200,
+                        overview(
+                            observer.manager,
+                            query["application"][0],
+                            query["environment"][0],
+                        ),
+                    )
+                except ValueError as exc:
+                    self.reply(400, {"error": error_message(exc)})
+                except Exception:  # noqa: BLE001 -- never reflect private configuration
+                    self.reply(503, {"error": "Profiles unavailable; retry shortly"})
+                return
             if url.path == PREFIX + "/logs":
                 try:
                     query = parse_qs(url.query, strict_parsing=True)
@@ -174,10 +198,12 @@ def serve(observer, address=("0.0.0.0", 8089)):
                 self.path,
             )
             catalog_route = self.path == PREFIX + "/catalog"
+            manage_route = self.path == MANAGE
             if (
                 not restart
                 and not config_route
                 and not catalog_route
+                and not manage_route
                 and self.path not in (PREFIX + "/login", PREFIX + "/logout")
             ):
                 self.reply(405, {"error": "Unsupported dashboard action"})
@@ -189,10 +215,13 @@ def serve(observer, address=("0.0.0.0", 8089)):
             ):
                 self.reply(403, {"error": "Same-origin JSON request required"})
                 return
-            if (restart or config_route or catalog_route) and not access.valid(
-                self.session()
-            ):
+            if (
+                restart or config_route or catalog_route or manage_route
+            ) and not access.valid(self.session()):
                 self.reply(401, {"error": "Owner sign-in required"})
+                return
+            if manage_route:
+                self.manage()
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -295,8 +324,36 @@ def serve(observer, address=("0.0.0.0", 8089)):
                     },
                 )
 
+        def manage(self):
+            from pydantic import ValidationError
+
+            from .dashboard_profiles import MAX_BODY, Refused, act, error_message
+
+            peer = self.client_address[0]
+
+            def verify(key):
+                status = access.verify(key, peer)
+                if status == 429:
+                    raise Refused("Too many attempts; wait one minute")
+                if status != 200:
+                    raise Refused("The dashboard access key is incorrect")
+
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= MAX_BODY or self.headers.get("Transfer-Encoding"):
+                    raise Refused("Request body missing or too large")
+                body = json.loads(self.rfile.read(length))
+                self.reply(200, act(observer.manager, body, verify))
+            except (ValueError, ValidationError) as exc:
+                self.reply(400, {"error": error_message(exc)})
+            except Exception:  # noqa: BLE001 -- contain private internal diagnostics
+                self.reply(
+                    503,
+                    {"error": "Management unavailable; inspect health before retrying"},
+                )
+
         def do_PUT(self):
-            self.reply(405, {"error": "Mission Control is read-only"})
+            self.reply(405, {"error": "Unsupported dashboard action"})
 
         do_DELETE = do_PUT
         do_PATCH = do_PUT

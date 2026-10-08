@@ -201,7 +201,24 @@ The manager state directory contains `deployments/registry.sqlite3`, private app
 - Application specifications and release IDs are immutable. Configuration changes to service commands, ports, or volumes currently require a new application/environment registration under a new ID. Credential replacement is supported separately as described above.
 - The current HTTP health probe invokes Python inside the application image. Images must provide `python`, and a successful container probe confirms the configured endpoint, not database readiness or a working user login.
 - The deployment service does not build images, trigger CI, check out GitHub branches, manage DNS/TLS, or perform database migrations. The optional CI importer below registers verified releases automatically before an agent proposes deployment.
-- Deployment controls and agent deployment-access assignment are not exposed in Mission Control yet. Its deployment views are read-only.
+- Agent deployment-access assignment is not exposed in Mission Control. Profiles and secrets are (see below).
+
+### Managing profiles and secrets in Mission Control
+
+Open **Deployments → an application environment → Manage profiles and secrets**. A signed-in owner can:
+
+- **View** every profile: values, secret and file references, required variables and connection checks, plus which profile is deployed and which one the release policy uses.
+- **Copy & edit** a profile. Profiles stay immutable, so the edited copy is saved under a new ID (the next `-vN` is suggested) and validated like any other profile.
+- **Run preflight** for a profile.
+- **Use for releases**: point the release policy's profile for that environment at another profile. The change is refused if the policy changed since the page was loaded.
+- **Redeploy** the environment's current release with a chosen profile, e.g. after rotating a secret. Repeating the request never queues a second deployment.
+- **Store, replace or generate** secrets, including file credentials such as `users.yaml` (upload). Secrets referenced by a profile but not stored are listed as missing.
+- **Reveal** a stored secret after re-entering the Mission Control access key. Key checks share the login throttle (five attempts per minute).
+
+Mission Control serves plain HTTP. Because a reveal sends the secret to your browser, reach it only through an SSH tunnel to a loopback-bound port (as in the user guide) or a TLS proxy, never directly over a shared network.
+
+Every change and reveal, including refused ones, is appended to `deployments/dashboard-audit.jsonl` in the state directory and shown as the environment's change log. Entries name the action, environment and profile or secret, never values. Secret changes reach the running application on its next deployment. Agents keep their own approval-based path; Mission Control actions are owner actions and need no Buzz approval.
+
 
 ## CI-backed releases (no COA required)
 

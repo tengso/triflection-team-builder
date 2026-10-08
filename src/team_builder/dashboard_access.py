@@ -41,27 +41,40 @@ class Access:
 
     def login(self, key, peer):
         with self.lock:
-            self.refresh()
+            status = self.check(key, peer)
+            if status != 200:
+                return status, None
             now = self.clock()
-            attempts = self.attempts.setdefault(peer, deque(maxlen=6))
-            self.attempts.move_to_end(peer)
-            while len(self.attempts) > 1024:
-                self.attempts.popitem(last=False)
-            for queue in (attempts, self.global_attempts):
-                while queue and queue[0] <= now - 60:
-                    queue.popleft()
-            if len(attempts) >= 5 or len(self.global_attempts) >= 100:
-                return 429, None
-            attempts.append(now)
-            self.global_attempts.append(now)
-            digest = hashlib.sha256(key.encode()).hexdigest()
-            if not self.verifier or not hmac.compare_digest(digest, self.verifier):
-                return 401, None
             token = secrets.token_urlsafe(32)
             if len(self.sessions) >= 128:
                 self.sessions.pop(next(iter(self.sessions)))
             self.sessions[token] = now + 8 * 3600
             return 200, token
+
+    def verify(self, key, peer):
+        """Re-check the access key for sensitive actions, with the login throttle."""
+        with self.lock:
+            return self.check(key, peer)
+
+    def check(self, key, peer):
+        """Throttled key comparison; the caller holds self.lock."""
+        self.refresh()
+        now = self.clock()
+        attempts = self.attempts.setdefault(peer, deque(maxlen=6))
+        self.attempts.move_to_end(peer)
+        while len(self.attempts) > 1024:
+            self.attempts.popitem(last=False)
+        for queue in (attempts, self.global_attempts):
+            while queue and queue[0] <= now - 60:
+                queue.popleft()
+        if len(attempts) >= 5 or len(self.global_attempts) >= 100:
+            return 429
+        attempts.append(now)
+        self.global_attempts.append(now)
+        digest = hashlib.sha256(key.encode()).hexdigest()
+        if not self.verifier or not hmac.compare_digest(digest, self.verifier):
+            return 401
+        return 200
 
     def valid(self, token):
         with self.lock:
