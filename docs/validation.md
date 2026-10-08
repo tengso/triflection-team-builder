@@ -535,3 +535,5 @@ reveal secrets in Mission Control. Every change and reveal is audited without
 values. Covered by HTTP-level tests (session and same-origin boundary, the
 full profile/secret lifecycle, reveal and its throttle, stale policy pages,
 idempotent redeploy) and a browser pass over every flow. 262 unit tests pass.
+
+GitHub Actions run `37715482834` passed for v0.8.9 (source `5a851240a239929555ca77d203ea4082220f4cfd`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.9` tags were promoted.
