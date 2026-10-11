@@ -562,3 +562,5 @@ volume contents and labels, workspace files, root-only ownership and modes,
 and credentials all came back; a second restore was refused).
 `import-credentials` uses the existing operator credential API and is covered
 by unit tests.
+
+GitHub Actions run `38147341386` passed for v0.8.10 (source `ee6d718f80318011c6c2911ed4cef388aebfb0bc`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.10` tags were promoted.
