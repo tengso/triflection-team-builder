@@ -41,6 +41,66 @@ def run(args, **kwargs):
     return result.stdout.strip()
 
 
+def secret_file(path, label):
+    """Read a private input file; errors name the file and the problem."""
+    if not path:
+        return None
+    resolved = Path(path).expanduser()
+    try:
+        value = resolved.read_text().strip()
+    except FileNotFoundError:
+        raise ValueError(f"{label} file not found: {resolved}") from None
+    except IsADirectoryError:
+        raise ValueError(f"{label} file is a directory: {resolved}") from None
+    except PermissionError:
+        raise ValueError(
+            f"{label} file is not readable by {getpass.getuser()}: {resolved}"
+        ) from None
+    except UnicodeDecodeError:
+        raise ValueError(f"{label} file is not a text file: {resolved}") from None
+    if not value:
+        raise ValueError(f"{label} file is empty: {resolved}")
+    return value
+
+
+def describe(exc):
+    """A specific, value-free explanation of a failure for the terminal."""
+    from pydantic import ValidationError
+
+    if type(exc) in (ValueError, RuntimeError):
+        return str(exc)
+    if isinstance(exc, ValidationError):
+        from .deployment_api import validation_summary
+
+        return "Invalid settings: " + validation_summary(exc)
+    if isinstance(exc, json.JSONDecodeError):
+        return f"Invalid JSON: {exc.msg} (line {exc.lineno}, column {exc.colno})"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        command = exc.cmd if isinstance(exc.cmd, (list, tuple)) else [exc.cmd]
+        return (
+            f"`{' '.join(map(str, command[:3]))}` did not finish within "
+            f"{exc.timeout:.0f}s; check that Docker answers (docker info) and retry"
+        )
+    if isinstance(exc, FileNotFoundError):
+        if exc.filename in ("docker", None):
+            return "The docker command was not found; install Docker and retry"
+        return f"File not found: {exc.filename}"
+    if isinstance(exc, PermissionError):
+        hint = (
+            "; add this user to the docker group (then log in again)"
+            if "docker.sock" in str(exc.filename)
+            else ""
+        )
+        return f"Permission denied: {exc.filename}{hint}"
+    if isinstance(exc, OSError):
+        detail = exc.strerror or type(exc).__name__
+        return f"{detail}: {exc.filename}" if exc.filename else detail
+    return (
+        f"Unexpected {type(exc).__name__}; details are withheld because they may "
+        "contain secret values (set TEAM_BUILDER_DEBUG=1 to print them)"
+    )
+
+
 def required(value, label, noninteractive, hidden=False):
     if value:
         return value
@@ -319,9 +379,7 @@ def initialize(root, args):
         internal_url = getattr(args, "internal_url", None)
         validate_network(endpoint, args.bind, args.port, internal_url)
         model = required(args.model, "Default model", args.non_interactive)
-        supplied = (
-            Path(args.owner_key_file).read_text() if args.owner_key_file else None
-        )
+        supplied = secret_file(args.owner_key_file, "Owner key")
         owner_secret = parse_key(
             required(
                 supplied,
@@ -330,11 +388,9 @@ def initialize(root, args):
                 True,
             )
         )
-        provider_key = (
-            Path(args.provider_key_file).read_text().strip()
-            if args.provider_key_file
-            else os.environ.get("TEAM_BUILDER_PROVIDER_KEY")
-        )
+        provider_key = secret_file(
+            args.provider_key_file, "Provider key"
+        ) or os.environ.get("TEAM_BUILDER_PROVIDER_KEY")
         provider_key = required(
             provider_key, "Model provider API key", args.non_interactive, True
         )
@@ -456,9 +512,7 @@ def initialize(root, args):
     registration = admin.head(30177, config["owner"], public(stored["coa"]))
     if not registration:
         if owner_secret is None:
-            supplied = (
-                Path(args.owner_key_file).read_text() if args.owner_key_file else None
-            )
+            supplied = secret_file(args.owner_key_file, "Owner key")
             owner_secret = parse_key(
                 required(
                     supplied,
@@ -899,9 +953,8 @@ with httpx.Client(trust_env=False,timeout=900) as client:
                     "Initialize this installation before adding credentials"
                 )
             api_key = (
-                Path(args.key_file).read_text().strip()
-                if args.key_file
-                else getpass.getpass("Model provider API key: ").strip()
+                secret_file(args.key_file, "API key")
+                or getpass.getpass("Model provider API key: ").strip()
             )
             store_credential(root, args.id, api_key)
             print(
@@ -922,6 +975,9 @@ with httpx.Client(trust_env=False,timeout=900) as client:
             )
         if args.base_url and args.provider != "custom":
             raise ValueError("Use --provider custom when supplying --base-url")
+        # Check input files before any prompt, so a typo doesn't waste the owner key.
+        secret_file(args.provider_key_file, "Provider key")
+        secret_file(args.owner_key_file, "Owner key")
         init(args)
         if getattr(args, "dashboard", False):
             from .dashboard_access import command
@@ -941,13 +997,17 @@ with httpx.Client(trust_env=False,timeout=900) as client:
                 + args.state_dir
             )
     except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
-        message = (
-            str(exc)
-            if type(exc) in (ValueError, RuntimeError)
-            else "Setup failed; existing state is preserved for retry"
-        )
+        if os.environ.get("TEAM_BUILDER_DEBUG") == "1":
+            import traceback
+
+            traceback.print_exc()
+        message = "Error: " + describe(exc)
+        if args.command == "init":
+            message += (
+                "\nNothing was lost: fix the problem and rerun the same init command."
+            )
         print(message, file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":
