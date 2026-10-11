@@ -500,6 +500,78 @@ def initialize(root, args):
     )
 
 
+STATE_DEFAULT = os.environ.get(
+    "TEAM_BUILDER_STATE_DIR", "~/.local/state/team-builder/default"
+)
+LIFECYCLE = (
+    ("status", "Show the team's services, agents, apps and attached databases"),
+    ("start", "Start a stopped team (services, agents and apps)"),
+    ("stop", "Stop the team; containers, data and state are kept"),
+    ("backup", "Archive state, community database and volumes"),
+    ("restore", "Recreate a removed team from a backup directory"),
+    ("remove", "Delete the team: containers, networks, volumes and state"),
+    ("logs", "Show logs of a core service, agent or app container"),
+    ("agent", "List, start, stop or restart an agent container"),
+    ("doctor", "Read-only health check of Docker, disk, services and agents"),
+    ("prune", "Remove leftover probe containers and unused Team Builder images"),
+    ("export-credentials", "Write deployment credentials to a private file"),
+    ("import-credentials", "Store exported deployment credentials in this team"),
+)
+
+
+def lifecycle_command(args):
+    from .lifecycle import Installation, restore
+
+    if args.command == "restore":
+        restore(
+            args.backup_dir, None if args.state_dir == STATE_DEFAULT else args.state_dir
+        )
+        return
+    team = Installation(args.state_dir)
+    if args.command == "status":
+        team.status()
+    elif args.command == "start":
+        team.start()
+    elif args.command == "stop":
+        team.stop(keep_apps=args.keep_apps)
+    elif args.command == "backup":
+        team.backup(args.output, keep=args.keep)
+    elif args.command == "logs":
+        raise SystemExit(team.logs(args.target, args.follow, args.tail, args.since))
+    elif args.command == "agent":
+        if args.action != "list" and not args.id:
+            raise ValueError("Name the agent, e.g. team-builder agent restart cody")
+        team.agent(args.action, args.id)
+    elif args.command == "doctor":
+        if any(level == "FAIL" for level, _, _ in team.doctor()):
+            raise SystemExit(1)
+    elif args.command == "prune":
+        team.prune(
+            args.dry_run,
+            confirm=(lambda prompt: True)
+            if args.yes
+            else (lambda prompt: input(prompt).strip().lower() in ("y", "yes")),
+        )
+    elif args.command == "export-credentials":
+        team.export_credentials(args.output)
+    elif args.command == "import-credentials":
+        if team.import_credentials(args.file, rotate=args.rotate)["failed"]:
+            raise SystemExit(1)
+    else:
+        team.status()
+        if not args.yes:
+            answer = input(
+                f"This deletes {team.project} permanently: agents, deployed apps, "
+                "community history and state. External databases are kept but "
+                f"disconnected. Type {team.project} to continue: "
+            )
+            if answer.strip() != team.project:
+                raise ValueError("Removal cancelled")
+        if not args.no_backup:
+            team.backup(args.output)
+        team.remove()
+
+
 def parser():
     parser = argparse.ArgumentParser(
         description="Bootstrap a Buzz community managed by Chief of Agents"
@@ -545,6 +617,64 @@ def parser():
         )
         if action == "set":
             item.add_argument("--url", required=True)
+    state_default = STATE_DEFAULT
+    for name, text in LIFECYCLE:
+        item = sub.add_parser(name, help=text)
+        item.add_argument("--state-dir", default=state_default)
+        if name == "stop":
+            item.add_argument(
+                "--keep-apps",
+                action="store_true",
+                help="Leave deployed application containers running",
+            )
+        if name in ("backup", "remove"):
+            item.add_argument(
+                "--output",
+                help="Backup directory (default: <state parent>/backups)",
+            )
+        if name == "backup":
+            item.add_argument(
+                "--keep",
+                type=int,
+                help="Afterwards delete all but the newest N backups of this team",
+            )
+        if name == "restore":
+            item.add_argument("backup_dir", help="Directory written by backup")
+        if name == "remove":
+            item.add_argument(
+                "--no-backup",
+                action="store_true",
+                help="Skip the backup taken before removal",
+            )
+        if name in ("remove", "prune"):
+            item.add_argument(
+                "--yes", action="store_true", help="Do not ask for confirmation"
+            )
+        if name == "prune":
+            item.add_argument(
+                "--dry-run", action="store_true", help="Only list what would go"
+            )
+        if name == "logs":
+            item.add_argument(
+                "target",
+                nargs="?",
+                help="Service (manager, relay, ...), agent ID or container name",
+            )
+            item.add_argument("-f", "--follow", action="store_true")
+            item.add_argument("--tail", type=int, default=200)
+            item.add_argument("--since", help="e.g. 10m, 2h or 2026-10-11T08:00")
+        if name == "agent":
+            item.add_argument("action", choices=("list", "start", "stop", "restart"))
+            item.add_argument("id", nargs="?", help="Agent ID, e.g. cody")
+        if name == "export-credentials":
+            item.add_argument("--output", required=True, help="New private file")
+        if name == "import-credentials":
+            item.add_argument("file", help="File written by export-credentials")
+            item.add_argument(
+                "--rotate",
+                action="store_true",
+                help="Replace credentials that already exist with different values",
+            )
     upgrade = sub.add_parser(
         "upgrade", help="Update the runtime while preserving community state"
     )
@@ -680,6 +810,9 @@ def main():
             raise SystemExit(1) from None
         return
     try:
+        if args.command in {name for name, _ in LIFECYCLE}:
+            lifecycle_command(args)
+            return
         if args.command == "proxy":
             from .proxy import command
 

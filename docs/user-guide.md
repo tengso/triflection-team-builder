@@ -84,7 +84,7 @@ was persuaded.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.9/buzz_team_builder-0.8.9-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.10/buzz_team_builder-0.8.10-py3-none-any.whl'
 team-builder init --bind 0.0.0.0 --port 3100
 ```
 
@@ -288,14 +288,28 @@ print the token. Revoke with `--revoke`.
 ## 8. Operations
 
 ```sh
+team-builder status                           # services, agents, apps, attached databases
+team-builder doctor                           # read-only health check; exit code 1 on any FAIL
+team-builder logs [manager|relay|cody|…] [-f] [--tail N] [--since 10m]
+team-builder agent list | start | stop | restart ID
+team-builder stop [--keep-apps]               # stop everything; containers, data and state kept
+team-builder start                            # start again; the manager relaunches running agents
+team-builder backup [--output DIR] [--keep N] # state + community database dump + volumes
+team-builder restore BACKUP_DIR               # recreate a removed team on the same host
+team-builder remove [--no-backup] [--yes]     # delete the team (backs up first, asks for the project name)
+team-builder export-credentials --output FILE # deployment secrets → private file
+team-builder import-credentials FILE [--rotate]
+team-builder prune [--dry-run] [--yes]        # leftover probes + unused Team Builder images
 team-builder upgrade                          # new wheel installed → update manager + agents
 team-builder upgrade --manager-only           # keep worker containers untouched
 team-builder upgrade --harness codex --image ghcr.io/…/codex@sha256:…
 team-builder proxy set --url http://proxy.corp:3128   # egress proxy for agents
 team-builder proxy status / disable
 team-builder dashboard status / rotate-key / disable
-docker compose -f ~/.local/state/team-builder/default/compose.yaml logs manager
 ```
+
+All commands take `--state-dir` (or `TEAM_BUILDER_STATE_DIR`); the default is
+`~/.local/state/team-builder/default`.
 
 - Upgrades preserve identities, channels, workspaces and infrastructure volumes;
   the previous `config.json`/`compose.yaml` are saved under `STATE/upgrades/`.
@@ -311,7 +325,54 @@ docker compose -f ~/.local/state/team-builder/default/compose.yaml logs manager
   stored result rather than executing twice.
 - For disaster recovery, back up the whole state directory securely: it holds
   agent identities, credentials (0600) and deployment state. The owner key is
-  *not* in it.
+  *not* in it. `team-builder backup` does this while the team runs and writes
+  a private directory (default `<state parent>/backups/<project>-<time>/`)
+  with `state.tgz`, a `pg_dumpall` of the community database, one archive per
+  volume and a `manifest.json` of SHA-256 checksums. Root-owned files are read
+  through a throwaway container of the runtime image, so no `sudo` is needed.
+- `team-builder remove` deletes the whole team so a new one can be created on
+  the same host. It shows the status, asks you to type the project name, takes
+  a backup, disconnects outside containers (e.g. databases attached for app
+  deployments) from the team's networks, then removes containers one at a
+  time, the core services, networks, volumes and the state directory. Outside
+  containers and images are kept. Remove the old community from your Buzz app
+  afterwards.
+- **Scheduled backups:** `--keep N` deletes all but the newest N backups of
+  this team afterwards. Example crontab line for the installation owner:
+  `15 2 * * * ~/team-builder/bin/team-builder backup --keep 7 >> ~/team-builder-backup.log 2>&1`.
+  Copy the backup folder off the host as well; it holds secrets in plain form,
+  so store it encrypted.
+- **Restore** needs the backup on the same host and path: agent workspaces are
+  mounted from the original state directory. It verifies the checksums,
+  refuses to overwrite an existing team (run `remove` first), restores the
+  state with its file ownership, recreates the volumes with their labels,
+  loads the community database from its dump and starts the team. Deployed
+  application containers are not part of a backup: redeploy their current
+  releases afterwards (Mission Control → Redeploy), which also reattaches the
+  databases.
+- **Credentials for a new team:** `export-credentials` writes the current
+  version of every deployment secret and file (e.g. `users.yaml`) to a new
+  0600 file. After registering the same applications in the new team,
+  `import-credentials` stores them through its manager, reporting each as
+  stored, unchanged or failed. Pass `--rotate` to replace existing values.
+  Delete the file afterwards. Provider and GitHub credentials are not
+  included; add them with `team-builder credential` and `github-credential`.
+- **`agent stop`** stops only the container. COA still lists the agent as
+  running, so the manager starts it again when the manager restarts or the
+  agent's configuration changes. Ask COA to stop an agent permanently.
+- **`doctor`** checks the Docker daemon, free disk space, state file
+  permissions, pinned images, every core service, the relay port, Mission
+  Control, agents and apps, leftover preflight probes, databases attached to
+  networks of more than one environment, and the age of the newest backup.
+- **`prune`** removes stopped preflight probes and images from Team Builder's
+  own repositories that no installation on this host pins and no container
+  uses. Application release images are never touched, so rollbacks keep
+  working.
+- `stop` stops deployed applications too unless you pass `--keep-apps`.
+  `start` restarts the applications it finds stopped.
+- Every Docker call has a time limit. If one expires and `docker info` also
+  hangs, the Docker daemon is stuck: `sudo systemctl restart docker`, then run
+  the command again (it continues where it left off).
 
 ---
 
@@ -361,7 +422,7 @@ PM owns the team; a quant developer joins as a human member.
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.9/buzz_team_builder-0.8.9-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.10/buzz_team_builder-0.8.10-py3-none-any.whl'
 printf '%s\n' 'sk-or-v1-…' > ~/openrouter.key && chmod 600 ~/openrouter.key
 # owner.key holds the PM's Nostr secret (hex or nsec)
 team-builder init --non-interactive --name "Alpha Desk" \

@@ -537,3 +537,28 @@ full profile/secret lifecycle, reveal and its throttle, stale policy pages,
 idempotent redeploy) and a browser pass over every flow. 262 unit tests pass.
 
 GitHub Actions run `37715482834` passed for v0.8.9 (source `5a851240a239929555ca77d203ea4082220f4cfd`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.9` tags were promoted.
+
+## v0.8.10 — host lifecycle commands
+
+New host commands: `status`, `doctor`, `logs`, `agent list|start|stop|restart`,
+`start`, `stop`, `backup [--keep N]`, `restore`, `remove`,
+`export-credentials`, `import-credentials` and `prune`. Every Docker call has a
+time limit and names a stuck daemon; `remove` disconnects outside containers
+from team networks first and removes containers one at a time, avoiding the
+daemon deadlock seen on sandbox2 when network-attached containers were removed
+together. Root-owned state is read and deleted through a throwaway container
+of the runtime image. 278 unit tests pass (call order, confirmation, backup
+contents and retention, restore pre-checks and order, credential export of
+current versions only, import reporting, prune selection, doctor findings).
+
+Exercised on sandbox2 against real Docker with a disposable installation
+(Postgres with data, HTTP relay, agent, app, preflight probe, root-only stored
+credentials, an outside container on the app network): doctor (it caught a
+crash-looping relay, diagnosed with `logs relay`), logs, agent
+restart/stop/start, export-credentials, prune (removed the probe and an
+unpinned image of a pinned repository, kept the pinned one), backup with
+`--keep 2`, stop/start, remove, and restore (database rows from the dump,
+volume contents and labels, workspace files, root-only ownership and modes,
+and credentials all came back; a second restore was refused).
+`import-credentials` uses the existing operator credential API and is covered
+by unit tests.
