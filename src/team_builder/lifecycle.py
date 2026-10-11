@@ -10,6 +10,7 @@ container from the installation's own runtime image, so no sudo is needed.
 
 import hashlib
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -26,6 +27,16 @@ import yaml
 
 LABEL = "io.team-builder.project"
 GIB = 1024**3
+DEPENDENCIES = {"postgres": 5432, "redis": 6379, "minio": 9000}
+STALE_RULES = (
+    "Stale Docker firewall rules are the usual cause when containers on one network "
+    "cannot reach each other: a crashed or killed Docker daemon can leave raw-table "
+    "DROP rules for an address that a new container now uses. Print the commands "
+    "that delete rules naming a bridge which no longer exists, review and run them:\n"
+    "  sudo iptables -t raw -S PREROUTING | while read -r r; do "
+    'b=$(grep -oE \'br-[0-9a-f]{12}\' <<<"$r"); [ -n "$b" ] && '
+    '! ip link show "$b" >/dev/null 2>&1 && echo "sudo iptables -t raw ${r/-A/-D}"; done'
+)
 STUCK = (
     "Docker did not answer within {}s. If `docker info` also hangs, the daemon is "
     "stuck: restart it (sudo systemctl restart docker) and run this command again."
@@ -314,12 +325,105 @@ class Installation:
         self.run(*self.compose, "stop", timeout=300)
         self.out("Stopped. Data is kept; `team-builder start` resumes the team.")
 
+    def redact(self, text):
+        """Remove installation secrets and URL credentials from diagnostic text."""
+        try:
+            secrets = json.loads((self.root / "secrets.json").read_text())
+        except (OSError, ValueError):
+            secrets = {}
+        for value in secrets.values():
+            if isinstance(value, str) and len(value) >= 8:
+                text = text.replace(value, "***")
+        return re.sub(r"(://[^:/@\s]*:)[^@\s]+@", r"\1***@", text)
+
+    def connectivity(self):
+        """(service, port, reachable) from the relay to the services it depends on."""
+        relay = f"{self.project}-relay-1"
+        if not any(
+            c["name"] == relay and c["state"] == "running" for c in self.containers()
+        ):
+            return []
+        results = []
+        for service, port in DEPENDENCIES.items():
+            try:
+                self.run(
+                    "exec",
+                    relay,
+                    "bash",
+                    "-c",
+                    f"timeout 3 bash -c 'exec 3<>/dev/tcp/{service}/{port}'",
+                    timeout=20,
+                )
+                results.append((service, port, True))
+            except RuntimeError:
+                results.append((service, port, False))
+        return results
+
+    def diagnose(self):
+        """Explain why core services are not healthy, without secret values."""
+        lines = []
+        for c in self.containers():
+            if c["role"] != "service" or (
+                c["state"] == "running"
+                and "unhealthy" not in c["status"]
+                and "health: starting" not in c["status"]
+            ):
+                continue
+            if c["state"] == "exited" and c["status"].startswith("Exited (0)"):
+                continue
+            lines.append(f"- {c['name']}: {c['status']}")
+            try:
+                checks = json.loads(
+                    self.run("inspect", "--format", "{{json .State.Health}}", c["name"])
+                    or "null"
+                )
+            except (RuntimeError, ValueError):
+                checks = None
+            last = ((checks or {}).get("Log") or [{}])[-1].get("Output", "").strip()
+            if last:
+                lines.append("    last health check: " + self.redact(last)[:300])
+            try:
+                logs = self.run("logs", "--tail", "5", c["name"])
+            except RuntimeError:
+                logs = ""
+            for line in logs.splitlines()[-5:]:
+                lines.append("    log: " + self.redact(line)[:300])
+        unreachable = [f"{s}:{p}" for s, p, ok in self.connectivity() if not ok]
+        if unreachable:
+            lines.append(
+                f"- the relay cannot open a TCP connection to {', '.join(unreachable)} "
+                "although they share its network."
+            )
+            lines.append(STALE_RULES)
+        return lines
+
+    def compose_up(self, *services, wait=300):
+        """compose up --wait that explains a failure instead of only its exit code."""
+        try:
+            self.run(
+                *self.compose,
+                "up",
+                "-d",
+                "--wait",
+                "--wait-timeout",
+                str(wait),
+                *services,
+                timeout=wait + 120,
+            )
+        except RuntimeError as exc:
+            details = self.diagnose()
+            raise RuntimeError(
+                f"Starting {', '.join(services) or 'the core services'} failed "
+                f"({self.redact(str(exc))})."
+                + ("\n" + "\n".join(details) if details else "")
+                + f"\nMore detail: team-builder logs <service> --state-dir {self.root}"
+                " and team-builder doctor."
+            ) from None
+
     def start(self):
         """Start services (the manager relaunches running agents), then the apps."""
         self.out("Starting core services")
-        self.run(
-            *self.compose, "up", "-d", "--wait", "--wait-timeout", "300", timeout=420
-        )
+        self.compose_up()
         for c in self.containers():
             if c["role"] == "app" and c["state"] != "running":
                 self.out(f"Starting app {c['name']}")
@@ -515,6 +619,14 @@ class Installation:
             c = rows.get(f"{self.project}-{service}-1")
             level, detail = health(c) if c else ("FAIL", "no container")
             report(level, f"service {service}", detail)
+        for service, port, ok in self.connectivity():
+            report(
+                "PASS" if ok else "FAIL",
+                f"network relay → {service}",
+                f"port {port} reachable"
+                if ok
+                else f"port {port} unreachable. {STALE_RULES}",
+            )
         bind, port = self.config.get("bind", "127.0.0.1"), self.config.get("port")
         if port:
             host = "127.0.0.1" if bind in ("0.0.0.0", "", None) else bind

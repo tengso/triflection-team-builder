@@ -485,7 +485,9 @@ def initialize(root, args):
     private_write(root / "compose.yaml", render(config, stored).encode())
     compose = ["docker", "compose", "-f", str(root / "compose.yaml")]
     print("Starting isolated Buzz services…", flush=True)
-    run([*compose, "up", "-d", "--wait", "--wait-timeout", "240", "relay"], timeout=300)
+    from .lifecycle import Installation
+
+    Installation(root).compose_up("relay", wait=240)
     run(
         [
             *compose,
@@ -535,10 +537,7 @@ def initialize(root, args):
         raise ValueError("COA registration differs from the expected bootstrap policy")
     owner_secret = None
     print("Starting Chief of Agents and verifying gateway connectivity…", flush=True)
-    run(
-        [*compose, "up", "-d", "--wait", "--wait-timeout", "300", "manager"],
-        timeout=360,
-    )
+    Installation(root).compose_up("manager", wait=300)
     office = admin.channel(config["office"])
     profile = admin.head(0, public(stored["coa"]))
     if (

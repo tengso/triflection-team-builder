@@ -35,6 +35,8 @@ class FakeDocker:
         self.images_present = {"sha256:abc": "sha256:pinned"}
         self.image_list = []
         self.profiles = None
+        self.blocked = set()
+        self.unhealthy = False
 
     def __call__(self, *args, timeout=120, input=None):
         self.calls.append(args)
@@ -77,8 +79,20 @@ class FakeDocker:
                 del self.containers[name]
             self.networks.pop(f"{P}_community", None)
             self.volumes = [v for v in self.volumes if not v.startswith(P + "_")]
+        if args[0] == "exec" and "bash" in args:
+            if any(f"/{name}/" in args[-1] for name in self.blocked):
+                raise RuntimeError("docker exec failed: exit 1")
+            return ""
         if args[0] == "exec":
             return "-- PostgreSQL database cluster dump"
+        if args[0] == "compose" and "up" in args and self.unhealthy:
+            raise RuntimeError("docker compose failed: container relay is unhealthy")
+        if args[:2] == ("inspect", "--format") and "Health" in args[2]:
+            return json.dumps(
+                {"Log": [{"Output": "check failed redis://:s3cretpassword@redis"}]}
+            )
+        if args[0] == "logs":
+            return "line one\nERROR Redis pool timed out url=redis://:s3cretpassword@redis:6379"
         if args[:2] == ("volume", "inspect"):
             return json.dumps({LABEL: P, "com.docker.compose.project": P})
         if args[:2] == ("image", "inspect"):
@@ -414,3 +428,45 @@ def test_restore_checks_then_rebuilds_in_order(team, tmp_path):
     (backup / "state.tgz").write_text("tampered")
     with pytest.raises(ValueError, match="checksum"):
         restore(backup, run=run)
+
+
+def test_failed_start_explains_unhealthy_services_and_blocked_network(team):
+    item, fake, _ = team
+    (item.root / "secrets.json").write_text(json.dumps({"redis": "s3cretpassword"}))
+    fake.containers[f"{P}-relay-1"] = ("running", "")
+    fake.unhealthy = True
+    fake.blocked = {"redis"}
+    original = fake.containers.copy()
+
+    def ps_status(*args, **kw):
+        out = fake(*args, **kw)
+        if args[:2] == ("ps", "-a") and "--format" in args:
+            out = out.replace(
+                f'"Names": "{P}-relay-1", "State": "running", "Status": "running"',
+                f'"Names": "{P}-relay-1", "State": "running", "Status": "Up 9 minutes (unhealthy)"',
+            )
+        return out
+
+    item.run = ps_status
+    with pytest.raises(RuntimeError) as failure:
+        item.compose_up("relay", wait=240)
+    message = str(failure.value)
+    assert message.startswith(
+        "Starting relay failed (docker compose failed: container relay is unhealthy)"
+    )
+    assert f"- {P}-relay-1: Up 9 minutes (unhealthy)" in message
+    assert "last health check: check failed redis://:***@redis" in message
+    assert "log: ERROR Redis pool timed out" in message
+    assert "s3cretpassword" not in message
+    assert "cannot open a TCP connection to redis:6379" in message
+    assert "sudo iptables -t raw -S PREROUTING" in message
+    assert fake.containers == original
+
+
+def test_doctor_checks_relay_network_paths(team):
+    item, fake, _ = team
+    fake.blocked = {"minio"}
+    results = {check: level for level, check, _ in item.doctor()}
+    assert results["network relay → postgres"] == "PASS"
+    assert results["network relay → redis"] == "PASS"
+    assert results["network relay → minio"] == "FAIL"

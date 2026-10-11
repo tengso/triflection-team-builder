@@ -600,6 +600,7 @@ The note lands in the thread, following the skill's format, citing script paths.
 | Detached server disappeared | Container restart/upgrade stops all processes; only gateway-only restarts preserve them. |
 | Agent ignores a message in a thread | It was not notified: `@mention` it, or reply to its own message from the Buzz app. |
 | Automatic release is blocked | Mission Control → Deployments shows the reason and the responsible agent is notified (on 0.7.0, mention it yourself). A missing supplied credential comes with the exact host command for the operator. |
+| `init`/`start` stops with "Starting relay failed", relay unhealthy, relay log shows `Redis pool … timed out` | The message lists the unhealthy services, their last health check and log lines, and which dependencies the relay cannot reach. Unreachable dependencies on the same network usually mean stale raw-table `DROP` rules left by a crashed or killed Docker daemon for an address a new container reuses. The message prints a one-liner that lists `iptables -t raw -D …` commands for rules naming a bridge that no longer exists; review and run them, then rerun the same `init` (or `start`). `team-builder doctor` checks the same paths. |
 | Manager logs `HTTP 429` from Buzz | The relay's per-identity limit (300 calls/minute); the manager waits for the window and retries twice. Persistent 429s mean unusually heavy management traffic. |
 
 For deeper reference: `README.md` (all flags and behaviours),
