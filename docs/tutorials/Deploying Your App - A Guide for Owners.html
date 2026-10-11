@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploying Your App — A Guide for Owners</title>
+<style>
+  :root {
+    --bg: oklch(98.5% 0.004 250);
+    --paper: #ffffff;
+    --ink: oklch(25% 0.02 255);
+    --ink-2: oklch(45% 0.02 255);
+    --ink-3: oklch(62% 0.015 255);
+    --line: oklch(91% 0.008 255);
+    --line-2: oklch(86% 0.01 255);
+    --accent: oklch(55% 0.13 245);
+    --accent-soft: oklch(95% 0.03 245);
+    --you: oklch(70% 0.14 70);      --you-soft: oklch(96% 0.04 80);
+    --cody: oklch(58% 0.13 245);    --cody-soft: oklch(95% 0.03 245);
+    --oppo: oklch(55% 0.14 300);    --oppo-soft: oklch(95.5% 0.03 300);
+    --system: oklch(55% 0.02 255);  --system-soft: oklch(95% 0.006 255);
+    --operator: oklch(56% 0.12 160); --operator-soft: oklch(95.5% 0.035 160);
+    --good: oklch(56% 0.13 155);
+    --warn: oklch(62% 0.14 65);
+    --bad: oklch(56% 0.17 25);
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(20, 30, 50, .05), 0 6px 20px rgba(20, 30, 50, .06);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1180px; margin: 0 auto; gap: 40px; padding: 0 28px; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; padding: 36px 0; overflow-y: auto; }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: -.01em; margin-bottom: 4px; }
+  .brand-sub { font-size: 13px; color: var(--ink-3); margin-bottom: 28px; }
+  .toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  .toc li { counter-increment: toc; }
+  .toc a { display: flex; gap: 10px; align-items: baseline; padding: 7px 10px; margin: 2px 0; border-radius: 8px; color: var(--ink-2); text-decoration: none; font-size: 14px; }
+  .toc a::before { content: counter(toc); font-size: 12px; color: var(--ink-3); width: 14px; font-variant-numeric: tabular-nums; }
+  .toc a:hover { background: var(--paper); color: var(--ink); }
+  .toc a.active { background: var(--paper); color: var(--ink); box-shadow: var(--shadow); font-weight: 600; }
+  .toc-note { margin-top: 28px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; padding: 12px; border: 1px dashed var(--line-2); border-radius: 10px; }
+  main { padding: 36px 0 120px; min-width: 0; }
+  section.chapter { padding-top: 24px; margin-bottom: 64px; scroll-margin-top: 12px; }
+  .eyebrow { font-size: 12.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 8px; }
+  h1 { font-size: 40px; line-height: 1.12; letter-spacing: -.025em; margin: 0 0 16px; }
+  h2 { font-size: 28px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 10px; }
+  h3 { font-size: 18px; margin: 0 0 6px; letter-spacing: -.01em; }
+  p.lead { font-size: 18.5px; color: var(--ink-2); max-width: 720px; margin: 0 0 22px; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--ink-2); }
+  .small { font-size: 14px; }
+  .card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  /* Cast */
+  .cast { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+  .person { padding: 16px; border-radius: var(--radius); background: var(--paper); border: 1px solid var(--line); }
+  .avatar { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 15px; margin-bottom: 10px; }
+  .person h3 { font-size: 15.5px; margin-bottom: 2px; }
+  .person .role { font-size: 12.5px; color: var(--ink-3); margin-bottom: 8px; }
+  .person p { font-size: 13.5px; color: var(--ink-2); margin: 0; line-height: 1.45; }
+  .bg-you { background: var(--you); } .bg-cody { background: var(--cody); } .bg-oppo { background: var(--oppo); } .bg-system { background: var(--system); } .bg-operator { background: var(--operator); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 3px 10px 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .chip.you { background: var(--you-soft); color: oklch(45% 0.1 65); } .chip.you i { background: var(--you); }
+  .chip.cody { background: var(--cody-soft); color: oklch(42% 0.12 245); } .chip.cody i { background: var(--cody); }
+  .chip.oppo { background: var(--oppo-soft); color: oklch(42% 0.13 300); } .chip.oppo i { background: var(--oppo); }
+  .chip.system { background: var(--system-soft); color: var(--ink-2); } .chip.system i { background: var(--system); }
+  .chip.operator { background: var(--operator-soft); color: oklch(40% 0.1 160); } .chip.operator i { background: var(--operator); }
+  /* Pipeline */
+  .pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; margin: 20px 0 14px; position: relative; }
+  .stage { position: relative; text-align: center; padding: 0 4px; cursor: pointer; background: none; border: 0; font: inherit; color: inherit; }
+  .stage .dot { width: 46px; height: 46px; margin: 0 auto 10px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--paper); display: grid; place-items: center; font-weight: 700; color: var(--ink-3); transition: all .2s ease; position: relative; z-index: 1; }
+  .stage::after { content: ""; position: absolute; top: 23px; left: 50%; width: 100%; height: 2px; background: var(--line-2); z-index: 0; }
+  .stage:last-child::after { display: none; }
+  .stage .label { font-size: 13.5px; font-weight: 600; line-height: 1.3; display: block; }
+  .stage .who { font-size: 12px; color: var(--ink-3); display: block; margin-top: 2px; }
+  .stage:hover .dot { border-color: var(--accent); color: var(--accent); }
+  .stage.on .dot { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 0 6px var(--accent-soft); }
+  .stage-detail { padding: 20px 22px; display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 22px; align-items: start; }
+  .stage-detail h3 { font-size: 19px; }
+  .aside-box { background: var(--bg); border-radius: 10px; padding: 14px; font-size: 14px; }
+  .aside-box strong { display: block; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 6px; }
+  /* Walkthrough */
+  .walk { overflow: hidden; }
+  .walk-head { padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .parts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .part-tab { border: 1px solid var(--line-2); background: var(--paper); border-radius: 999px; padding: 6px 12px; font: 600 13px var(--font); color: var(--ink-2); cursor: pointer; }
+  .part-tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .progress { flex: 1; min-width: 160px; height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }
+  .progress span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .35s ease; }
+  .counter { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .step { display: none; padding: 26px 26px 10px; animation: fade .25s ease; }
+  .step.on { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .step-top { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .step h3 { font-size: 22px; letter-spacing: -.015em; margin-bottom: 10px; }
+  .step-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 26px; }
+  .do { border-left: 3px solid var(--you); background: var(--you-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; }
+  .do strong { display: block; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: oklch(45% 0.1 65); margin-bottom: 4px; }
+  .msg { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; padding-right: 74px; font-size: 14.5px; margin: 10px 0; }
+  .msg .where { display: block; font-size: 12px; color: var(--ink-3); margin-bottom: 4px; }
+  .copy { position: absolute; top: 10px; right: 10px; border: 1px solid var(--line-2); background: var(--paper); border-radius: 8px; font: 600 12px var(--font); padding: 5px 9px; cursor: pointer; color: var(--ink-2); }
+  .copy:hover { border-color: var(--accent); color: var(--accent); }
+  .copy.done { color: var(--good); border-color: var(--good); }
+  ul.check { list-style: none; padding: 0; margin: 8px 0 12px; }
+  ul.check li { position: relative; padding-left: 26px; margin: 6px 0; font-size: 15px; }
+  ul.check li::before { content: ""; position: absolute; left: 2px; top: 6px; width: 14px; height: 14px; border-radius: 4px; border: 2px solid var(--good); }
+  ul.check li::after { content: ""; position: absolute; left: 7px; top: 8px; width: 4px; height: 8px; border: solid var(--good); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .note { font-size: 14px; color: var(--ink-2); background: var(--system-soft); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .note.warn { background: oklch(96.5% 0.04 80); color: oklch(40% 0.08 65); }
+  details.tech { margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+  details.tech summary { cursor: pointer; padding: 10px 14px; font-size: 14px; font-weight: 600; color: var(--operator); list-style: none; }
+  details.tech summary::-webkit-details-marker { display: none; }
+  details.tech summary::before { content: "▸ "; }
+  details.tech[open] summary::before { content: "▾ "; }
+  details.tech .inner { padding: 0 14px 14px; font-size: 14px; }
+  pre { background: oklch(22% 0.02 255); color: oklch(93% 0.01 255); border-radius: 10px; padding: 12px 14px; font: 13px/1.55 var(--mono); overflow-x: auto; margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; }
+  code { font-family: var(--mono); font-size: .9em; background: var(--system-soft); padding: 1px 5px; border-radius: 5px; }
+  .walk-foot { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px 18px; }
+  .btn { border: 1px solid var(--line-2); background: var(--paper); color: var(--ink); border-radius: 10px; padding: 9px 16px; font: 600 14px var(--font); cursor: pointer; }
+  .btn:hover { border-color: var(--ink-3); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.05); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .kbd-hint { font-size: 12.5px; color: var(--ink-3); }
+  /* Illustration panels */
+  .scene { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 13.5px; }
+  .scene .title { font-size: 12px; font-weight: 600; color: var(--ink-3); letter-spacing: .05em; text-transform: uppercase; margin-bottom: 10px; }
+  .bubble { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px; margin: 8px 0; line-height: 1.45; }
+  .bubble .who { font-weight: 700; font-size: 12.5px; display: block; margin-bottom: 2px; }
+  .bubble.me { background: var(--you-soft); border-color: transparent; margin-left: 22px; }
+  .bubble.agent { margin-right: 10px; }
+  .bubble.proposal { border-color: var(--cody); box-shadow: 0 0 0 3px var(--cody-soft); }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--cody-soft); color: oklch(42% 0.12 245); margin-left: 6px; vertical-align: 1px; }
+  /* Chat simulator */
+  .sim { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 560px; overflow: hidden; }
+  .sim-side { background: oklch(97% 0.006 255); border-right: 1px solid var(--line); padding: 18px 14px; }
+  .sim-side h4 { margin: 0 0 4px; font-size: 13px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+  .chan { padding: 7px 10px; border-radius: 8px; font-size: 14px; color: var(--ink-2); }
+  .chan.on { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+  .mission { margin-top: 22px; padding: 12px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); font-size: 13px; }
+  .mission b { display: block; font-size: 12px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+  .mission ol { margin: 0; padding-left: 18px; }
+  .mission li { margin: 4px 0; color: var(--ink-3); }
+  .mission li.done { color: var(--good); text-decoration: line-through; }
+  .mission li.now { color: var(--ink); font-weight: 600; }
+  .sim-main { display: flex; flex-direction: column; min-width: 0; }
+  .sim-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  .sim-head b { font-size: 15px; }
+  .sim-log { flex: 1; padding: 16px 18px; overflow-y: auto; max-height: 470px; }
+  .post { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; margin-bottom: 14px; animation: fade .25s ease; }
+  .post .avatar { width: 34px; height: 34px; font-size: 13px; margin: 0; }
+  .post .meta { font-size: 13px; font-weight: 700; }
+  .post .meta span { font-weight: 400; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+  .post .body { font-size: 14.5px; }
+  .post .body p { margin: 2px 0 6px; }
+  .post .reply-ref { font-size: 12px; color: var(--ink-3); border-left: 2px solid var(--line-2); padding-left: 8px; margin-bottom: 4px; }
+  .proposal-card { margin-top: 6px; border: 1px solid var(--cody); border-radius: 10px; padding: 10px 12px; background: var(--paper); box-shadow: 0 0 0 3px var(--cody-soft); }
+  .proposal-card ul { margin: 6px 0; padding-left: 18px; font-size: 14px; }
+  .reply-btn { margin-top: 8px; font: 600 12.5px var(--font); border: 1px solid var(--line-2); background: var(--paper); padding: 4px 10px; border-radius: 8px; cursor: pointer; color: var(--ink-2); }
+  .reply-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .typing { font-size: 13px; color: var(--ink-3); font-style: italic; margin: 0 0 12px 44px; }
+  .sim-compose { border-top: 1px solid var(--line); padding: 12px 18px 16px; }
+  .replying { font-size: 12.5px; color: var(--accent); margin-bottom: 6px; display: none; }
+  .replying.on { display: block; }
+  .replying button { border: 0; background: none; color: var(--ink-3); cursor: pointer; font: inherit; text-decoration: underline; }
+  .suggest { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .suggest button { border: 1px dashed var(--accent); background: var(--accent-soft); color: oklch(40% 0.12 245); border-radius: 999px; padding: 6px 12px; font: 600 13px var(--font); cursor: pointer; text-align: left; }
+  .compose-row { display: flex; gap: 8px; }
+  .compose-row input { flex: 1; border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; font: 15px var(--font); }
+  .compose-row input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .coach { margin: 8px 0 0; font-size: 13.5px; border-radius: 10px; padding: 10px 12px; display: none; }
+  .coach.on { display: block; }
+  .coach.ok { background: oklch(95.5% 0.04 155); color: oklch(36% 0.09 155); }
+  .coach.no { background: oklch(96% 0.035 25); color: oklch(40% 0.12 25); }
+  .coach.hint { background: var(--system-soft); color: var(--ink-2); }
+  /* Troubleshooting */
+  .trouble { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 18px; }
+  .symptoms { display: flex; flex-direction: column; gap: 8px; }
+  .symptom { text-align: left; border: 1px solid var(--line); background: var(--paper); border-radius: 12px; padding: 12px 14px; font: 15px/1.4 var(--font); cursor: pointer; color: var(--ink); display: flex; gap: 10px; }
+  .symptom .ico { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--bg); font-size: 14px; }
+  .symptom:hover { border-color: var(--line-2); }
+  .symptom.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .answer { padding: 22px 24px; }
+  .answer h3 { font-size: 20px; margin-bottom: 14px; }
+  .answer .block { margin-bottom: 16px; }
+  .answer .block > b { display: block; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px; }
+  .answer ol { margin: 4px 0 0; padding-left: 20px; }
+  .answer li { margin: 4px 0; }
+  /* Rules */
+  .rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .rule { padding: 16px; }
+  .rule .num { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+  .rule h3 { font-size: 16px; }
+  .rule p { font-size: 14px; color: var(--ink-2); margin: 0; }
+  /* Glossary */
+  dl.gloss { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 10px 20px; margin: 0; }
+  dl.gloss dt { font-weight: 700; font-size: 15px; }
+  dl.gloss dd { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .gloss-card { padding: 20px 22px; }
+  footer { color: var(--ink-3); font-size: 13px; border-top: 1px solid var(--line); padding-top: 18px; }
+  @media (max-width: 1000px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.toc { display: none; }
+    .cast { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .step-grid, .stage-detail, .trouble, .sim { grid-template-columns: 1fr; }
+    .sim-side { display: none; }
+    .rules { grid-template-columns: 1fr; }
+    .pipeline .stage .who { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+  @media print {
+    nav.toc, .walk-foot, .walk-head .parts, .sim, #practice .lead + p { display: none; }
+    .layout { display: block; }
+    .step { display: block !important; page-break-inside: avoid; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="Contents">
+  <div class="brand">Deploying your app</div>
+  <div class="brand-sub">A guide for owners · HTI Research Admin</div>
+  <ol>
+    <li><a href="#welcome">Who does what</a></li>
+    <li><a href="#journey">The journey of a change</a></li>
+    <li><a href="#walkthrough">Step by step</a></li>
+    <li><a href="#practice">Practice: release to UAT</a></li>
+    <li><a href="#help">Something looks wrong</a></li>
+    <li><a href="#rules">Five golden rules</a></li>
+    <li><a href="#words">Words you will see</a></li>
+  </ol>
+  <div class="toc-note">You never need a terminal. Everything you do happens in the Buzz app; anything technical is done by the agents or your operator.</div>
+</nav>
+
+<main>
+
+<!-- 1. Welcome -->
+<section class="chapter" id="welcome" data-screen-label="01 Who does what">
+  <p class="eyebrow">Start here</p>
+  <h1>How a change gets from an idea to your live app</h1>
+  <p class="lead">Your AI agents do the technical work of testing and releasing the HTI Research Admin app. Your job is to <strong>decide</strong>: you read short proposals in Buzz, try the app in a safe test copy, and reply <strong>approve</strong> when you are happy.</p>
+  <p class="muted">Meet the five players. Their colours are used throughout this guide.</p>
+  <div class="cast">
+    <div class="person">
+      <div class="avatar bg-you">You</div>
+      <h3>You, the owner</h3>
+      <div class="role">Decides and approves</div>
+      <p>Asks for changes, checks the test copy, and replies <em>approve</em> to proposals. Nothing important happens without you.</p>
+    </div>
+    <div class="person">
+      <div class="avatar bg-cody">C</div>
+      <h3>Cody</h3>
+      <div class="role">Developer agent · UAT</div>
+      <p>Changes the app, sets it up, deploys it to the test copy (UAT) and fixes problems found there.</p>
+    </div>
+    <div class="person">
+      <div class="avatar bg-oppo">O</div>
+      <h3>Oppo</h3>
+      <div class="role">Operations agent · production</div>
+      <p>Releases the tested version to the live app and watches it. Until Oppo exists, Cody can do this too.</p>
+    </div>
+    <div class="person">
+      <div class="avatar bg-system">⚙</div>
+      <h3>The system</h3>
+      <div class="role">Team Builder manager</div>
+      <p>Does the actual installing, runs safety checks, keeps a record of every release, and refuses anything you did not approve.</p>
+    </div>
+    <div class="person">
+      <div class="avatar bg-operator">IT</div>
+      <h3>Your operator</h3>
+      <div class="role">Server administrator</div>
+      <p>Stores passwords and other secrets on the server, and keeps it running. Secrets never go into chat.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 2. Journey -->
+<section class="chapter" id="journey" data-screen-label="02 Journey of a change">
+  <p class="eyebrow">The big picture</p>
+  <h2>The journey of a change</h2>
+  <p class="lead">Every change travels the same road. Click each stop to see what happens there and what, if anything, you need to do.</p>
+  <div class="card" style="padding: 22px 18px 6px;">
+    <div class="pipeline" role="tablist" aria-label="Stages of a release">
+      <button class="stage on" data-stage="0" role="tab" aria-selected="true"><span class="dot">1</span><span class="label">Change is made</span><span class="who">Cody</span></button>
+      <button class="stage" data-stage="1" role="tab" aria-selected="false"><span class="dot">2</span><span class="label">Release is built</span><span class="who">System</span></button>
+      <button class="stage" data-stage="2" role="tab" aria-selected="false"><span class="dot">3</span><span class="label">Arrives on the server</span><span class="who">System</span></button>
+      <button class="stage" data-stage="3" role="tab" aria-selected="false"><span class="dot">4</span><span class="label">Test copy (UAT)</span><span class="who">Cody · you approve</span></button>
+      <button class="stage" data-stage="4" role="tab" aria-selected="false"><span class="dot">5</span><span class="label">You try it</span><span class="who">You</span></button>
+      <button class="stage" data-stage="5" role="tab" aria-selected="false"><span class="dot">6</span><span class="label">Live app</span><span class="who">Oppo · you approve</span></button>
+    </div>
+    <div id="stage-panels">
+      <div class="stage-detail" data-panel="0">
+        <div>
+          <h3>Cody makes the change</h3>
+          <p>You describe what you want in Cody's channel. Cody edits the app's code and opens a <em>pull request</em>, a proposed code change that someone reviews before it is accepted.</p>
+          <p>Once the change is reviewed and accepted (“merged”), it starts its journey automatically.</p>
+        </div>
+        <div class="aside-box"><strong>Your part</strong>Describe the change. If you are the reviewer, accept the pull request on GitHub when Cody says it is ready.</div>
+      </div>
+      <div class="stage-detail" data-panel="1" hidden>
+        <div>
+          <h3>A release is built and tested</h3>
+          <p>A robot on GitHub runs the app's tests and packages the app into a sealed, numbered <strong>release</strong>, for example <code>ci-37255024251-1</code>. A release never changes after it is built, so what you test is exactly what goes live.</p>
+        </div>
+        <div class="aside-box"><strong>Your part</strong>Nothing. This takes about 5–10 minutes.</div>
+      </div>
+      <div class="stage-detail" data-panel="2" hidden>
+        <div>
+          <h3>The release arrives on your server</h3>
+          <p>Every two minutes the system looks for new releases, downloads them and checks they are genuine. While it works it shows <strong>importing</strong>; when finished, the release appears in the list.</p>
+          <p class="small muted">It is normal for this to take a few minutes after GitHub finishes. Arriving on the server does not install anything yet.</p>
+        </div>
+        <div class="aside-box"><strong>Your part</strong>Nothing. If Cody says the release is missing, wait a few minutes.</div>
+      </div>
+      <div class="stage-detail" data-panel="3" hidden>
+        <div>
+          <h3>Cody installs it on the test copy (UAT)</h3>
+          <p>UAT is a private copy of the app with its own copy of the data. Cody prepares an exact plan (“install release X with settings Y”) and posts it as a <strong>proposal</strong> in Buzz.</p>
+          <p>You reply <strong>approve</strong> to that proposal. Cody then installs it and reports when the system's health checks pass.</p>
+        </div>
+        <div class="aside-box"><strong>Your part</strong>Read the proposal and reply <em>approve</em> directly to it.</div>
+      </div>
+      <div class="stage-detail" data-panel="4" hidden>
+        <div>
+          <h3>You try the test copy</h3>
+          <p>Open UAT in your browser and use the app the way your users would: sign in, open the pages that changed, check the numbers look right.</p>
+          <p class="small muted">A green health check only means the app started. Whether it does the right thing is for you to judge.</p>
+        </div>
+        <div class="aside-box"><strong>Your part</strong>Test it. Tell Cody about anything wrong; the fix goes round the same journey again.</div>
+      </div>
+      <div class="stage-detail" data-panel="5" hidden>
+        <div>
+          <h3>The same release goes live</h3>
+          <p>When UAT is good, ask Oppo (or Cody) to release <strong>the same release number</strong> to production. Another proposal appears; you approve it; the live app is updated and checked.</p>
+          <p class="small muted">If something goes wrong, the system puts the previous version back automatically. Your data is never rolled back or deleted by a release.</p>
+        </div>
+        <div class="aside-box"><strong>Your part</strong>Approve the production proposal, then do a quick check of the live app.</div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top: 14px;"><strong>Later, this can become automatic.</strong> Once you trust the process, you can approve a “release policy” once. After that, every accepted change goes through UAT checks and into production on its own, and you are only asked when a real decision is needed. See <em>Part C</em> of the walkthrough.</p>
+</section>
+
+<!-- 3. Walkthrough -->
+<section class="chapter" id="walkthrough" data-screen-label="03 Step by step">
+  <p class="eyebrow">Step by step</p>
+  <h2>The full process, one step at a time</h2>
+  <p class="lead">Part A is done once per app. Part B is what you do for every change. Part C is optional automation. Use the buttons or your ← → keys.</p>
+
+  <div class="card walk" id="walk">
+    <div class="walk-head">
+      <div class="parts">
+        <button class="part-tab on" data-part="A">A · One-time setup</button>
+        <button class="part-tab" data-part="B">B · Every change</button>
+        <button class="part-tab" data-part="C">C · Going automatic</button>
+      </div>
+      <div class="progress" aria-hidden="true"><span id="walk-bar" style="width: 0%;"></span></div>
+      <div class="counter" id="walk-count">Step 1 of 11</div>
+    </div>
+
+    <!-- A1 -->
+    <article class="step on" data-part="A" data-screen-label="Step A1">
+      <div class="step-top"><span class="chip you"><i></i>You</span><span class="chip system"><i></i>COA (team manager agent)</span></div>
+      <h3>A1. Give Cody permission to handle releases</h3>
+      <div class="step-grid">
+        <div>
+          <p>New agents can't touch releases. You allow it once, through the Chief of Agents (COA), the agent that manages your team.</p>
+          <div class="do"><strong>Do this</strong>In the <b>Office of COA</b> channel, send:</div>
+          <div class="msg"><span class="where">Office of COA</span><span class="text">Make Cody a release agent.</span><button class="copy">Copy</button></div>
+          <p>COA posts a proposal describing the change. Reply <strong>approve</strong> to it, either as a reply to that exact message or by tapping <em>Reply</em> on it and typing <em>approve</em>.</p>
+          <p class="note">You only do this once. If you later add Oppo, the same works for Oppo.</p>
+        </div>
+        <div class="scene">
+          <div class="title">What it looks like</div>
+          <div class="bubble me"><span class="who">You</span>Make Cody a release agent.</div>
+          <div class="bubble agent proposal"><span class="who">Chief of Agents <span class="tag">Proposal</span></span>Proposed team changes: make <b>Cody</b> a release agent. Reply <b>approve</b> to this message.</div>
+          <div class="bubble me"><span class="who">You · replying</span>approve</div>
+          <div class="bubble agent"><span class="who">Chief of Agents</span>Done. Cody now has release tools.</div>
+        </div>
+      </div>
+    </article>
+
+    <!-- A2 -->
+    <article class="step" data-part="A" data-screen-label="Step A2">
+      <div class="step-top"><span class="chip you"><i></i>You</span><span class="chip cody"><i></i>Cody</span></div>
+      <h3>A2. Ask Cody to set the app up</h3>
+      <div class="step-grid">
+        <div>
+          <p>Cody reads the app's code and works out everything the server needs: what to run, which settings to use, which database to connect to, who runs UAT and who runs production.</p>
+          <div class="do"><strong>Do this</strong>In Cody's channel (<b>Platform Engineering</b>), send:</div>
+          <div class="msg"><span class="where">Platform Engineering</span><span class="text">@Cody Set up hti-research-admin for UAT and production using your release tools. You operate UAT; production is run by Oppo (or by you until Oppo exists). Propose the setup for my approval, then tell me which secrets are missing.</span><button class="copy">Copy</button></div>
+          <p>Cody replies with <strong>one proposal</strong> listing everything. Read the checklist on the right before you approve it.</p>
+        </div>
+        <div class="scene">
+          <div class="title">Before you approve, check</div>
+          <ul class="check">
+            <li>It names the right app and both environments (UAT and production).</li>
+            <li>UAT and production use <b>different databases</b>, unless you have decided otherwise.</li>
+            <li>The right agents get access: Cody for UAT, Oppo or Cody for production.</li>
+            <li>No passwords appear in it. Secrets are only ever <em>named</em>, never shown.</li>
+          </ul>
+          <p class="small muted">Not sure? Ask Cody in plain words, e.g. “Which database will UAT use?” Nothing happens until you approve.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- A3 -->
+    <article class="step" data-part="A" data-screen-label="Step A3">
+      <div class="step-top"><span class="chip cody"><i></i>Cody</span><span class="chip you"><i></i>You</span><span class="chip operator"><i></i>Operator</span></div>
+      <h3>A3. Hand the secrets to your operator, not to chat</h3>
+      <div class="step-grid">
+        <div>
+          <p>After setup, Cody lists the secrets the app still needs: database passwords, a login file and so on. Agents never ask for the values, and you must never paste them into Buzz.</p>
+          <div class="do"><strong>Do this</strong>Forward Cody's list to your operator, together with where the real values are kept (password manager, existing server). The operator stores each one on the server.</div>
+          <p>When the operator says it's done, tell Cody:</p>
+          <div class="msg"><span class="where">Platform Engineering</span><span class="text">@Cody The secrets are stored. Please run the pre-flight check for UAT and tell me what is still missing.</span><button class="copy">Copy</button></div>
+          <p class="note warn"><strong>If a secret was ever pasted in chat</strong>, treat it as leaked: ask the operator to change that password.</p>
+        </div>
+        <div>
+          <details class="tech">
+            <summary>For the operator: storing one secret</summary>
+            <div class="inner">
+              <p>On the server, as the installation owner, for each secret name Cody lists (example: <code>mysql-password</code> for UAT):</p>
+<pre>umask 077
+echo '{"action":"credential","application":"hti-research-admin","environment":"staging","id":"mysql-password"}' &gt; mysql-password.json
+team-builder deployment mysql-password.json --secret-file /path/to/the/secret</pre>
+              <p class="small muted" style="margin-top: 8px;">UAT is called <code>staging</code> in commands. Delete the plaintext file afterwards. Full details: <em>docs/application-deployment-guide.md</em>.</p>
+            </div>
+          </details>
+          <div class="scene" style="margin-top: 12px;">
+            <div class="title">Typical list from Cody</div>
+            <div class="bubble agent"><span class="who">Cody</span>Still missing for UAT: <b>mysql-password</b>, <b>auth-db-password</b>, <b>crm-report-db-password</b>, <b>gateway-token-secret</b>, <b>users-yaml</b> (login file). Please have them stored on the host; I never need the values.</div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- A4 -->
+    <article class="step" data-part="A" data-screen-label="Step A4">
+      <div class="step-top"><span class="chip operator"><i></i>Operator</span><span class="chip cody"><i></i>Cody</span></div>
+      <h3>A4. Make sure the test copy has its own data</h3>
+      <div class="step-grid">
+        <div>
+          <p>UAT should use a <strong>copy</strong> of your data, so testing can never damage the real thing. For HTI, the operator created a UAT database on the server, copied from production, and Cody connected the app to it.</p>
+          <p>Some parts of the app use other systems, such as the login directory or the report database. If a page fails because one of those isn't connected yet, that's an infrastructure task for the operator, not something you need to fix.</p>
+          <div class="do"><strong>Do this</strong>Decide whether UAT may use any production systems directly. The safe default is <em>no</em>: UAT gets copies or read-only access.</div>
+        </div>
+        <div class="scene">
+          <div class="title">Why a separate copy matters</div>
+          <p style="margin: 0 0 8px;">In UAT, people click buttons to try things out. If UAT shared the live database, a test edit would change real records.</p>
+          <p style="margin: 0;">With a copy, the worst case is resetting UAT, and your users never notice.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- B1 -->
+    <article class="step" data-part="B" data-screen-label="Step B1">
+      <div class="step-top"><span class="chip you"><i></i>You</span><span class="chip cody"><i></i>Cody</span></div>
+      <h3>B1. Ask for a change</h3>
+      <div class="step-grid">
+        <div>
+          <p>Describe what you want in plain language, as you would to a colleague. Mention Cody with <b>@Cody</b> so the message reaches it.</p>
+          <div class="msg"><span class="where">Platform Engineering</span><span class="text">@Cody On the analyst interactions page, add a filter for the last 30 days. Open a pull request when it's ready and tell me how to review it.</span><button class="copy">Copy</button></div>
+          <p>Cody changes the code, runs the tests, and opens a pull request. Someone, often you, accepts (“merges”) it on GitHub. From that moment the change is on its way.</p>
+        </div>
+        <div class="scene">
+          <div class="title">Tips for good requests</div>
+          <ul class="check">
+            <li>Say <em>what</em> you want and <em>why</em>, not how to code it.</li>
+            <li>Give an example: “the March numbers should show 42”.</li>
+            <li>Reply in the same thread to add details.</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- B2 -->
+    <article class="step" data-part="B" data-screen-label="Step B2">
+      <div class="step-top"><span class="chip system"><i></i>System</span></div>
+      <h3>B2. Wait for the release to arrive</h3>
+      <div class="step-grid">
+        <div>
+          <p>After the change is accepted, GitHub builds and tests a release (5–10 minutes). The server then picks it up within a few minutes and verifies it.</p>
+          <p>You don't need to do anything. If you ask Cody too early, it may say the release is <strong>importing</strong>. That means “nearly there”, not “broken”.</p>
+          <p class="note">Only <em>stale</em> (no successful check for 10 minutes) or <em>failed</em> means something needs attention, and Cody will say so.</p>
+        </div>
+        <div class="scene">
+          <div class="title">Where a release is</div>
+          <div class="bubble agent"><span class="who">Cody</span>Release <b>ci-37255024251-1</b> is importing (started 2 minutes ago). I'll propose the UAT deployment as soon as it's registered.</div>
+        </div>
+      </div>
+    </article>
+
+    <!-- B3 -->
+    <article class="step" data-part="B" data-screen-label="Step B3">
+      <div class="step-top"><span class="chip you"><i></i>You</span><span class="chip cody"><i></i>Cody</span><span class="chip system"><i></i>System</span></div>
+      <h3>B3. Approve the UAT deployment</h3>
+      <div class="step-grid">
+        <div>
+          <div class="msg"><span class="where">Platform Engineering</span><span class="text">@Cody Deploy the latest release to UAT and tell me when it's healthy.</span><button class="copy">Copy</button></div>
+          <p>Cody posts a <strong>proposal</strong>: the exact release number, environment (<em>staging</em> = UAT) and settings. Reply <strong>approve</strong> to that message. Use the Reply button on it, then type just <em>approve</em>.</p>
+          <p>The system then runs safety checks, installs the release, and waits until the app reports healthy. Cody tells you when it has <strong>succeeded</strong>.</p>
+          <p class="note"><b>Queued</b> or <b>running</b> is not finished. Wait for <b>succeeded</b>. If installation fails, the previous version is put back automatically.</p>
+        </div>
+        <div class="scene">
+          <div class="title">Reading a deployment proposal</div>
+          <div class="bubble agent proposal"><span class="who">Cody <span class="tag">Proposal</span></span>Deploy release <b>ci-37255024251-1</b> (commit a666a0d) to <b>staging</b> with profile <b>uat-v3</b>. No database migrations.</div>
+          <ul class="check">
+            <li><b>staging</b> means UAT. <b>production</b> means live.</li>
+            <li>The release number is the one you expect.</li>
+            <li>“No database migrations” = your data's structure is untouched.</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- B4 -->
+    <article class="step" data-part="B" data-screen-label="Step B4">
+      <div class="step-top"><span class="chip you"><i></i>You</span></div>
+      <h3>B4. Try the test copy yourself</h3>
+      <div class="step-grid">
+        <div>
+          <p>Open UAT in your browser and sign in with your UAT account. Check what changed and a few things that should <em>not</em> have changed.</p>
+          <ul class="check">
+            <li>You can sign in.</li>
+            <li>The changed page works as you asked.</li>
+            <li>Important numbers match what you expect.</li>
+            <li>Nothing else looks broken.</li>
+          </ul>
+          <p>Found a problem? Describe it to Cody with the page name and what you saw. The fix travels the same road: change → release → UAT.</p>
+        </div>
+        <div>
+          <details class="tech" open>
+            <summary>How to open UAT (HTI)</summary>
+            <div class="inner">
+              <p>UAT is only reachable through a secure connection to the server. Your operator can set this up once on your computer; afterwards, keep this running in a Terminal window:</p>
+<pre>ssh -N -L 18502:127.0.0.1:18502 ubuntu@sandbox2</pre>
+              <p style="margin-top: 8px;">Then open <b>http://127.0.0.1:18502</b> in your browser. Your UAT password is separate from production.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </article>
+
+    <!-- B5 -->
+    <article class="step" data-part="B" data-screen-label="Step B5">
+      <div class="step-top"><span class="chip you"><i></i>You</span><span class="chip oppo"><i></i>Oppo (or Cody)</span><span class="chip system"><i></i>System</span></div>
+      <h3>B5. Release the same version to production</h3>
+      <div class="step-grid">
+        <div>
+          <p>When you are happy with UAT, send the <strong>same release number</strong> live. Never ask for “the latest”, because a newer release may have arrived that you haven't tested.</p>
+          <div class="msg"><span class="where">Production channel</span><span class="text">@Oppo UAT passed for release ci-37255024251-1. Deploy that same release to production and report when it's healthy.</span><button class="copy">Copy</button></div>
+          <p>Approve Oppo's proposal the same way. Then open the live app and do a quick check.</p>
+          <p class="note">UAT approval does <b>not</b> approve production. Each environment needs its own approve.</p>
+        </div>
+        <div class="scene">
+          <div class="title">If the live app has a problem</div>
+          <div class="bubble me"><span class="who">You</span>@Oppo The live dashboard shows an error since the release. Please roll back to the previous version and investigate.</div>
+          <div class="bubble agent proposal"><span class="who">Oppo <span class="tag">Proposal</span></span>Roll back production to <b>ci-35807996920-1</b> (images only; data unchanged).</div>
+          <p class="small muted" style="margin: 6px 0 0;">Approve it, and the previous version is back within minutes.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- C1 -->
+    <article class="step" data-part="C" data-screen-label="Step C1">
+      <div class="step-top"><span class="chip you"><i></i>You</span><span class="chip cody"><i></i>Cody</span></div>
+      <h3>C1. Approve a release policy, once</h3>
+      <div class="step-grid">
+        <div>
+          <p>Once the manual process has worked a few times, you can let it run on its own. Cody writes automatic acceptance checks (read-only tests) and proposes a <strong>release policy</strong>: the agreed rules for when a release may go to UAT and then production.</p>
+          <div class="msg"><span class="where">Platform Engineering</span><span class="text">@Cody Propose an enabled release policy for hti-research-admin: run your acceptance checks in UAT and production, notify the production channel, and let the production agent roll back if production checks fail.</span><button class="copy">Copy</button></div>
+          <p>Read it carefully. Approving it means routine releases <em>no longer need your approve</em>.</p>
+        </div>
+        <div class="scene">
+          <div class="title">What you're agreeing to</div>
+          <ul class="check">
+            <li>Every accepted change is installed in UAT and checked automatically.</li>
+            <li>Only if UAT checks pass does the <em>same</em> release go live.</li>
+            <li>If live checks fail, the previous version can be restored.</li>
+            <li>You can pause the policy at any time by asking Cody.</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- C2 -->
+    <article class="step" data-part="C" data-screen-label="Step C2">
+      <div class="step-top"><span class="chip system"><i></i>System</span><span class="chip cody"><i></i>Cody</span><span class="chip oppo"><i></i>Oppo</span><span class="chip you"><i></i>You, only when needed</span></div>
+      <h3>C2. Life with automatic releases</h3>
+      <div class="step-grid">
+        <div>
+          <p>From now on: change accepted → release built → UAT installed and checked → live installed and checked. You see progress in <b>Mission Control → Deployments</b> and short notices in the production channel.</p>
+          <p>If a step is blocked, the responsible agent is notified and investigates. You're only asked for things only you can provide:</p>
+          <ul class="check">
+            <li>A missing secret: the message includes exactly what to give your operator.</li>
+            <li>A decision outside the agreed rules, such as a database change.</li>
+          </ul>
+          <p class="note">You still test UAT whenever you like. Automatic checks catch breakage, but they don't judge whether a feature is what you wanted.</p>
+        </div>
+        <div class="scene">
+          <div class="title">A typical notice</div>
+          <div class="bubble agent"><span class="who">Cody</span>Automatic release ci-37301122334-1: UAT and production checks passed. Live app updated at 14:32.</div>
+          <div class="bubble agent"><span class="who">Oppo</span>Production check “reports-load” failed after release ci-37301122334-1. Previous version restored; investigating with Cody.</div>
+        </div>
+      </div>
+    </article>
+
+    <div class="walk-foot">
+      <button class="btn" id="walk-prev">← Back</button>
+      <span class="kbd-hint">Use ← → keys</span>
+      <button class="btn primary" id="walk-next">Next →</button>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Practice -->
+<section class="chapter" id="practice" data-screen-label="04 Practice chat">
+  <p class="eyebrow">Practice</p>
+  <h2>Practice: release a change to UAT</h2>
+  <p class="lead">A safe pretend Buzz chat. Nothing here touches the real app. Follow the mission on the left; the coach under the message box tells you what's happening.</p>
+  <div class="card sim">
+    <aside class="sim-side">
+      <h4>Channels</h4>
+      <div class="chan">Office of COA</div>
+      <div class="chan on"># Platform Engineering</div>
+      <div class="chan">Production</div>
+      <div class="mission">
+        <b>Your mission</b>
+        <ol id="mission">
+          <li data-m="0" class="now">Ask Cody to deploy to UAT</li>
+          <li data-m="1">Approve the proposal correctly</li>
+          <li data-m="2">Confirm it succeeded</li>
+        </ol>
+      </div>
+      <button class="btn" id="sim-reset" style="margin-top: 14px; width: 100%;">Start over</button>
+    </aside>
+    <div class="sim-main">
+      <div class="sim-head"><b># Platform Engineering</b><span class="small muted">Practice mode</span></div>
+      <div class="sim-log" id="sim-log" aria-live="polite"></div>
+      <div class="sim-compose">
+        <div class="replying" id="replying">Replying to Cody's proposal · <button id="cancel-reply">cancel</button></div>
+        <div class="suggest" id="suggest"></div>
+        <div class="compose-row">
+          <input id="sim-input" type="text" placeholder="Type a message…" autocomplete="off" aria-label="Message">
+          <button class="btn primary" id="sim-send">Send</button>
+        </div>
+        <div class="coach" id="coach"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. Troubleshooting -->
+<section class="chapter" id="help" data-screen-label="05 Troubleshooting">
+  <p class="eyebrow">Troubleshooting</p>
+  <h2>Something looks wrong — what do you see?</h2>
+  <p class="lead">Pick the situation closest to yours. Each answer says what it means, what to do, and a message you can copy.</p>
+  <div class="trouble">
+    <div class="symptoms" id="symptoms">
+      <button class="symptom on" data-s="silent"><span class="ico">💬</span><span>I messaged an agent and got no reply</span></button>
+      <button class="symptom" data-s="approve"><span class="ico">✅</span><span>I replied “approve” and nothing happened</span></button>
+      <button class="symptom" data-s="missing"><span class="ico">⏳</span><span>Cody says the new release isn't there yet</span></button>
+      <button class="symptom" data-s="secret"><span class="ico">🔑</span><span>An agent asks for a password or secret</span></button>
+      <button class="symptom" data-s="odd"><span class="ico">📄</span><span>The reply is just a file path or looks cut off</span></button>
+      <button class="symptom" data-s="page"><span class="ico">⚠️</span><span>A UAT page shows an error</span></button>
+      <button class="symptom" data-s="blocked"><span class="ico">⛔</span><span>An automatic release says “blocked”</span></button>
+      <button class="symptom" data-s="live"><span class="ico">🔥</span><span>The live app broke after a release</span></button>
+    </div>
+    <div class="card answer" id="answer"></div>
+  </div>
+</section>
+
+<!-- 6. Rules -->
+<section class="chapter" id="rules" data-screen-label="06 Golden rules">
+  <p class="eyebrow">Remember</p>
+  <h2>Five golden rules</h2>
+  <div class="rules" style="margin-top: 16px;">
+    <div class="card rule"><div class="num">RULE 1</div><h3>Reply “approve” to the exact proposal</h3><p>Use Reply on the proposal message itself. A new message, or a reply to a summary, doesn't count.</p></div>
+    <div class="card rule"><div class="num">RULE 2</div><h3>Never paste secrets into chat</h3><p>Passwords go to your operator, who stores them on the server. Agents never need the values.</p></div>
+    <div class="card rule"><div class="num">RULE 3</div><h3>UAT first, then production</h3><p>Every change is tried in the test copy before it goes live. Each environment needs its own approve.</p></div>
+    <div class="card rule"><div class="num">RULE 4</div><h3>Same release number in production</h3><p>Release exactly what you tested, by its number, never “the latest”.</p></div>
+    <div class="card rule"><div class="num">RULE 5</div><h3>“Queued” is not “done”</h3><p>Wait for <em>succeeded</em>. Agents report when the health checks pass.</p></div>
+    <div class="card rule" style="background: var(--accent-soft); border-color: transparent;"><div class="num">AND</div><h3>When unsure, ask in plain words</h3><p>“What will this change?” or “Is this safe?” are good questions. Nothing happens without your approval.</p></div>
+  </div>
+</section>
+
+<!-- 7. Glossary -->
+<section class="chapter" id="words" data-screen-label="07 Glossary">
+  <p class="eyebrow">Glossary</p>
+  <h2>Words you will see</h2>
+  <div class="card gloss-card" style="margin-top: 16px;">
+    <dl class="gloss">
+      <dt>UAT / staging</dt><dd>The private test copy of the app, with its own copy of the data. “staging” is its technical name.</dd>
+      <dt>Production</dt><dd>The live app your users work in.</dd>
+      <dt>Release</dt><dd>A sealed, numbered version of the app (e.g. <code>ci-37255024251-1</code>) that never changes after it's built.</dd>
+      <dt>Proposal</dt><dd>A frozen description of exactly what an agent wants to do. It only happens if you reply <em>approve</em> to it.</dd>
+      <dt>Pull request</dt><dd>A proposed code change, reviewed before it's accepted (“merged”) into the app.</dd>
+      <dt>Pre-flight check</dt><dd>The system's safety check before installing: are all settings, secrets and connections in place?</dd>
+      <dt>Health check</dt><dd>An automatic “is the app up and answering?” test after installing. It doesn't prove features are correct.</dd>
+      <dt>Rollback</dt><dd>Putting the previous release back. It restores the app, not the data.</dd>
+      <dt>Release policy</dt><dd>Rules you approve once so routine releases go through UAT and production automatically.</dd>
+      <dt>Mission Control</dt><dd>The read-only dashboard showing agents, releases, deployments and their status.</dd>
+      <dt>Operator</dt><dd>The person who administers the server and stores secrets.</dd>
+      <dt>Secret</dt><dd>Anything that grants access: passwords, tokens, login files. Never shared in chat.</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>
+  Deploying your app with Team Builder · for owners and approvers · reflects Team Builder 0.8.5. Technical details: <em>docs/application-deployment-guide.md</em> and <em>docs/deployments.md</em>.
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+
+  /* Copy buttons */
+  function wireCopy(root) {
+    $$(".copy", root).forEach(function (btn) {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = "1";
+      btn.addEventListener("click", function () {
+        var text = btn.parentElement.querySelector(".text").textContent.trim();
+        var done = function () { btn.textContent = "Copied"; btn.classList.add("done"); setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("done"); }, 1400); };
+        if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done, done); }
+        else { var t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand("copy"); } catch (e) {} t.remove(); done(); }
+      });
+    });
+  }
+  wireCopy(document);
+
+  /* Table of contents highlight */
+  var links = $$(".toc a");
+  var chapters = $$("section.chapter");
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        links.forEach(function (a) { a.classList.toggle("active", a.getAttribute("href") === "#" + entry.target.id); });
+      }
+    });
+  }, { rootMargin: "-30% 0px -60% 0px" });
+  chapters.forEach(function (c) { observer.observe(c); });
+
+  /* Journey stages */
+  var stages = $$(".stage");
+  stages.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var i = btn.dataset.stage;
+      stages.forEach(function (s) { var on = s === btn; s.classList.toggle("on", on); s.setAttribute("aria-selected", on ? "true" : "false"); });
+      $$("[data-panel]").forEach(function (p) { p.hidden = p.dataset.panel !== i; });
+    });
+  });
+
+  /* Walkthrough */
+  var steps = $$(".step");
+  var key = "tb-owner-tutorial-step";
+  var index = Math.min(Math.max(parseInt(localStorage.getItem(key) || "0", 10) || 0, 0), steps.length - 1);
+  function showStep(i) {
+    index = Math.min(Math.max(i, 0), steps.length - 1);
+    steps.forEach(function (s, n) { s.classList.toggle("on", n === index); });
+    var part = steps[index].dataset.part;
+    $$(".part-tab").forEach(function (t) { t.classList.toggle("on", t.dataset.part === part); });
+    $("#walk-bar").style.width = ((index + 1) / steps.length * 100) + "%";
+    $("#walk-count").textContent = "Step " + (index + 1) + " of " + steps.length;
+    $("#walk-prev").disabled = index === 0;
+    $("#walk-next").textContent = index === steps.length - 1 ? "Practise it →" : "Next →";
+    localStorage.setItem(key, String(index));
+  }
+  $("#walk-prev").addEventListener("click", function () { showStep(index - 1); });
+  $("#walk-next").addEventListener("click", function () {
+    if (index === steps.length - 1) { document.getElementById("practice").scrollIntoView(); return; }
+    showStep(index + 1);
+  });
+  $$(".part-tab").forEach(function (t) {
+    t.addEventListener("click", function () {
+      showStep(steps.findIndex(function (s) { return s.dataset.part === t.dataset.part; }));
+    });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.target.closest("input, textarea")) return;
+    var r = $("#walk").getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) return;
+    if (e.key === "ArrowRight") { showStep(index + 1); }
+    if (e.key === "ArrowLeft") { showStep(index - 1); }
+  });
+  showStep(index);
+
+  /* Practice chat */
+  var log = $("#sim-log"), input = $("#sim-input"), coach = $("#coach"), suggest = $("#suggest");
+  var state = { phase: 0, replyTo: false, proposalShown: false };
+  var people = {
+    you: { name: "You", cls: "bg-you", init: "You" },
+    cody: { name: "Cody", cls: "bg-cody", init: "C" }
+  };
+  function time() { var d = new Date(); return d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0"); }
+  function post(who, html, opts) {
+    opts = opts || {};
+    var p = people[who];
+    var el = document.createElement("div");
+    el.className = "post";
+    el.innerHTML = '<div class="avatar ' + p.cls + '">' + p.init + '</div><div><div class="meta">' + p.name + '<span>' + time() + '</span></div>' +
+      (opts.replyRef ? '<div class="reply-ref">↳ ' + opts.replyRef + '</div>' : '') + '<div class="body">' + html + '</div></div>';
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+  function typing(ms, then) {
+    var t = document.createElement("div");
+    t.className = "typing"; t.textContent = "Cody is working…";
+    log.appendChild(t); log.scrollTop = log.scrollHeight;
+    setTimeout(function () { t.remove(); then(); }, ms);
+  }
+  function setCoach(kind, html) { coach.className = "coach on " + kind; coach.innerHTML = html; }
+  function mission(n) {
+    $$("#mission li").forEach(function (li) {
+      var m = +li.dataset.m;
+      li.className = m < n ? "done" : (m === n ? "now" : "");
+    });
+  }
+  function setSuggestions(list) {
+    suggest.innerHTML = "";
+    list.forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = s;
+      b.addEventListener("click", function () { input.value = s; input.focus(); });
+      suggest.appendChild(b);
+    });
+  }
+  function setReplying(on) {
+    state.replyTo = on;
+    $("#replying").classList.toggle("on", on);
+    input.placeholder = on ? "Reply to the proposal…" : "Type a message…";
+    if (on) input.focus();
+  }
+  function showProposal() {
+    var el = post("cody",
+      '<p>Release <b>ci-37255024251-1</b> is registered. Here is the plan for UAT:</p>' +
+      '<div class="proposal-card"><b>Proposal</b><ul><li>Deploy release <b>ci-37255024251-1</b> (commit a666a0d)</li><li>Environment: <b>staging</b> (UAT)</li><li>Settings profile: <b>uat-v3</b></li><li>No database migrations</li></ul>' +
+      '<span class="small muted">Reply <b>approve</b> to this message to authorize exactly this.</span><br><button class="reply-btn" type="button">↩ Reply</button></div>');
+    $(".reply-btn", el).addEventListener("click", function () { setReplying(true); setSuggestions(["approve"]); setCoach("hint", "Good: you're replying <b>to the proposal itself</b>. Now type <b>approve</b> and send."); });
+    state.proposalShown = true;
+  }
+  function start() {
+    log.innerHTML = ""; state = { phase: 0, replyTo: false, proposalShown: false };
+    setReplying(false); mission(0);
+    post("cody", "<p>Hi! PR #3 has been merged. When you want it in UAT, just ask.</p>");
+    setSuggestions(["@Cody Deploy the latest release to UAT and tell me when it's healthy."]);
+    setCoach("hint", "Ask Cody to deploy. Tip: tap the suggestion above, or type your own message starting with <b>@Cody</b> so Cody is notified.");
+  }
+  function send() {
+    var text = input.value.trim();
+    if (!text) return;
+    var isReply = state.replyTo;
+    post("you", "<p>" + text.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }) + "</p>", isReply ? { replyRef: "Cody · Proposal: deploy ci-37255024251-1 to staging" } : {});
+    input.value = "";
+    var lower = text.toLowerCase();
+    var approveText = lower.replace(/^@cody\s+/, "").replace(/[.!]+$/, "") === "approve";
+    if (state.phase === 0) {
+      if (!/@cody/.test(lower)) {
+        setCoach("no", "Cody didn't see that: messages only reach an agent when you <b>mention it with @Cody</b> (or reply to one of its messages). Try again with <b>@Cody</b> at the start.");
+        return;
+      }
+      if (!/(deploy|release|uat|staging)/.test(lower)) {
+        typing(900, function () { post("cody", "<p>Happy to help. Do you want me to deploy the latest release to UAT?</p>"); });
+        setCoach("hint", "Cody needs to know what you want. Ask it to <b>deploy the latest release to UAT</b>.");
+        return;
+      }
+      state.phase = 1; mission(1); setSuggestions([]);
+      setCoach("hint", "Cody is checking which release is ready and preparing an exact plan…");
+      typing(1600, function () {
+        showProposal();
+        setCoach("hint", "Read the proposal: is it <b>staging</b> (UAT), the release you expect, and no database migrations? If yes, press <b>↩ Reply</b> on the proposal and send <b>approve</b>.");
+      });
+      return;
+    }
+    if (state.phase === 1) {
+      if (!approveText) {
+        setCoach("no", isReply ? "Only a plain <b>approve</b> (or <b>@Cody approve</b>) authorizes the proposal. Extra words are refused, so ask questions in a separate message." : "Questions are fine; Cody will answer. To authorize, use <b>↩ Reply</b> on the proposal and send just <b>approve</b>.");
+        if (!isReply && /\?/.test(text)) typing(900, function () { post("cody", "<p>Good question. The plan installs release ci-37255024251-1 in UAT only, using the UAT settings. Production is not touched, and no database changes are made.</p>"); });
+        return;
+      }
+      if (!isReply) {
+        setCoach("no", "That “approve” was a <b>new message</b>, not a reply to the proposal, so the system won't accept it. Press <b>↩ Reply</b> on the proposal card first, then send <b>approve</b>.");
+        typing(900, function () { post("cody", "<p>I can't act on that one: approvals must be a direct reply to the proposal message. Please use Reply on the proposal.</p>"); });
+        return;
+      }
+      setReplying(false); state.phase = 2; mission(2); setSuggestions([]);
+      setCoach("ok", "Correct! A direct reply with just <b>approve</b>. The system checks it really came from you and matches the frozen plan.");
+      typing(1300, function () {
+        post("cody", "<p>Approved. Deployment <b>queued</b>; running pre-flight checks…</p>");
+        typing(1800, function () {
+          post("cody", "<p>Installing release and waiting for health checks…</p>");
+          typing(2000, function () {
+            post("cody", "<p>✅ <b>Succeeded.</b> UAT is running release ci-37255024251-1; both services are healthy. Please test at http://127.0.0.1:18502 and tell me if anything looks wrong.</p>");
+            mission(3);
+            setCoach("ok", "Mission complete. Notice the order: <b>queued → running → succeeded</b>. Only “succeeded” means it's done. Next step in real life: try UAT yourself.");
+            setSuggestions(["@Cody Thanks! What changed in this release?"]);
+          });
+        });
+      });
+      return;
+    }
+    typing(900, function () { post("cody", "<p>This release adds the runtime-safe table checks from PR #3, so pages no longer need extra database permissions. Everything else is unchanged.</p>"); });
+  }
+  $("#sim-send").addEventListener("click", send);
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter") send(); });
+  $("#cancel-reply").addEventListener("click", function () { setReplying(false); });
+  $("#sim-reset").addEventListener("click", start);
+  start();
+
+  /* Troubleshooting */
+  var answers = {
+    silent: {
+      t: "I messaged an agent and got no reply",
+      mean: "Agents only notice messages that mention them, or replies to their own messages. A reply can also take a minute or two while the agent works.",
+      steps: ["Make sure the message starts with <b>@Cody</b> (or the agent's name), picked from the mention list.", "Give it two or three minutes for bigger tasks.", "Still nothing? Ask your operator to check the agent in Mission Control. A common cause is the AI provider account running out of credit."],
+      say: "@Cody Did you receive my last message? Please reply with a short status."
+    },
+    approve: {
+      t: "I replied “approve” and nothing happened",
+      mean: "The approval has to be a direct reply to the proposal message, containing only “approve” (or “@Cody approve”). Approvals in a new message, or with extra words, are refused on purpose.",
+      steps: ["Find the proposal message (it lists exactly what will change).", "Use <b>Reply</b> on that message and send just <b>approve</b>.", "If an agent says the proposal is out of date, ask it to make a fresh proposal and approve the new one."],
+      say: "@Cody I approved your proposal but didn't see a result. Please check the approval and tell me the status."
+    },
+    missing: {
+      t: "Cody says the new release isn't there yet",
+      mean: "A new release takes a few minutes to arrive after GitHub finishes building it: the server checks every two minutes, then downloads and verifies it. “Importing” means it's on its way.",
+      steps: ["Wait 5 minutes and ask again.", "If Cody reports “stale” or “failed” for more than 10 minutes, ask your operator to look at Mission Control → Deployments."],
+      say: "@Cody Is the new release still importing? Please propose the UAT deployment as soon as it's registered."
+    },
+    secret: {
+      t: "An agent asks for a password or secret",
+      mean: "Agents are designed never to need secret values. They should only name what's missing. Secrets travel from you to your operator, never through chat.",
+      steps: ["Don't paste it. Forward the <b>name</b> of the missing secret to your operator.", "The operator stores it on the server (the agent's message includes the exact command).", "If a secret was pasted in chat by mistake, ask the operator to change it."],
+      say: "@Cody Please don't ask for secret values. List the missing secret names and the operator command, and I'll pass them on."
+    },
+    odd: {
+      t: "The reply is just a file path, or looks cut off",
+      mean: "The agent finished its work but its message didn't post properly. The work itself usually happened.",
+      steps: ["Ask the agent to post its last reply again.", "If it keeps happening, ask your operator to upgrade Team Builder (fixed in 0.8.3)."],
+      say: "@Cody Your last reply didn't come through properly. Please post it again as a normal message."
+    },
+    page: {
+      t: "A UAT page shows an error",
+      mean: "That's exactly what UAT is for: catching problems before your users do. The error text helps Cody find the cause, which is often a missing connection or permission rather than your data.",
+      steps: ["Copy the error text (or take a screenshot) and note which page and what you clicked.", "Send it to Cody. Don't release this version to production yet.", "If Cody says it needs infrastructure work (a database or network), it will tell you what to ask the operator for."],
+      say: "@Cody In UAT, the <page name> page shows this error: <paste error>. Please investigate and fix it, and don't release to production until it's resolved."
+    },
+    blocked: {
+      t: "An automatic release says “blocked”",
+      mean: "The automatic process stopped safely before going further. The responsible agent is notified and investigates. The live app is not changed by a blocked UAT step.",
+      steps: ["Open Mission Control → Deployments to read the reason.", "If the reason is a missing secret, the message includes what your operator must store.", "Otherwise let the agent investigate; it will report what it fixed or what decision it needs from you."],
+      say: "@Cody The automatic release is blocked. What is the reason, and do you need anything from me?"
+    },
+    live: {
+      t: "The live app broke after a release",
+      mean: "Releases can be undone: the previous version can be put back within minutes. A rollback restores the app, not the data.",
+      steps: ["Ask Oppo (or Cody) to roll back production to the previous release.", "Approve the rollback proposal.", "Once the live app is back, ask for an investigation and a fix that goes through UAT again."],
+      say: "@Oppo The live app shows problems since the last release. Please propose a rollback to the previous release now, then investigate with Cody."
+    }
+  };
+  function showAnswer(id) {
+    var a = answers[id];
+    $$(".symptom").forEach(function (b) { b.classList.toggle("on", b.dataset.s === id); });
+    $("#answer").innerHTML =
+      "<h3>" + a.t + "</h3>" +
+      '<div class="block"><b>What it means</b><p>' + a.mean + "</p></div>" +
+      '<div class="block"><b>What to do</b><ol>' + a.steps.map(function (s) { return "<li>" + s + "</li>"; }).join("") + "</ol></div>" +
+      '<div class="block"><b>Message you can send</b><div class="msg"><span class="text">' + a.say.replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</span><button class="copy">Copy</button></div></div>';
+    wireCopy($("#answer"));
+  }
+  $$(".symptom").forEach(function (b) { b.addEventListener("click", function () { showAnswer(b.dataset.s); }); });
+  showAnswer("silent");
+})();
+</script>
+</body>
+</html>
