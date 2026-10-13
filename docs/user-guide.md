@@ -269,6 +269,23 @@ editor:
 COA can assign catalog IDs to agents through `configure_agent` (with owner
 approval) but cannot invent new catalog entries — only you can.
 
+**Inside the web Buzz app.** A web build of
+[tengso/buzz-app](https://github.com/tengso/buzz-app) can show Mission Control as
+a page (see its `docs/browser-host.md`, "Mission Control"). Its nginx proxies
+`/dashboard/` on the app's own origin to the dashboard port, so this works through
+an SSH tunnel and behind a path-prefixed HTTPS gateway alike: the dashboard uses
+relative paths, scopes its session cookie to the path the browser sees, and
+allows framing by its own origin only. There, the community owner signs in with
+their Buzz key instead of the access key: the dashboard issues a single-use
+challenge, the Buzz page signs it (kind 27235, `u` = `mission-control`) with the
+viewer's key, and Mission Control accepts it only from the owner public key in
+`config.json`, within two minutes. Revealing a secret asks Buzz for a fresh
+signature in the same way. The access key keeps working as a fallback, and both
+methods share the login limit (5 attempts a minute). Because the dashboard then
+shares the Buzz app's origin, a script running in either can use the other's
+session; serve both with their strict Content-Security-Policies, and only
+behind the gateway login or a private tunnel.
+
 ---
 
 ## 7. GitHub access

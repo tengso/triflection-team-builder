@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from urllib.parse import parse_qs, urlsplit
 
-from .dashboard_access import Access
+from .dashboard_access import OWNER_AUDIENCE, OWNER_KIND, Access
 
 PREFIX = "/dashboard/api/v1"
 COOKIE = "tb_dashboard"
@@ -24,10 +24,29 @@ ASSETS = {
     "/dashboard/profiles.js": ("profiles.js", "text/javascript; charset=utf-8"),
 }
 MANAGE = PREFIX + "/deployments/manage"
+# Paths stay relative so Mission Control also works under a proxy prefix, e.g.
+# embedded in a web Buzz build at https://gateway/app/dashboard/. Without a Path
+# attribute the browser scopes the session cookie to the API directory it came from.
+SESSION_COOKIE = COOKIE + "={}; HttpOnly; SameSite=Strict; Max-Age={}"
+LEGACY_COOKIE = COOKIE + "=; Path=/dashboard; HttpOnly; SameSite=Strict; Max-Age=0"
+
+
+def same_origin(headers):
+    """True for browser requests from the dashboard's own origin, behind any proxy.
+
+    Sec-Fetch-Site is set by the browser and cannot be forged by page scripts;
+    the Origin/Host comparison covers browsers that predate it, whatever scheme a
+    TLS-terminating proxy hides.
+    """
+    site = headers.get("Sec-Fetch-Site")
+    if site is not None:
+        return site == "same-origin"
+    origin = urlsplit(headers.get("Origin") or "")
+    return bool(origin.netloc) and origin.netloc == headers.get("Host", "")
 
 
 def serve(observer, address=("0.0.0.0", 8089)):
-    access = Access(observer.root)
+    access = Access(observer.root, owner=observer.manager.config.get("owner"))
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -37,7 +56,7 @@ def serve(observer, address=("0.0.0.0", 8089)):
         def log_message(self, *args):
             pass
 
-        def reply(self, code, value, content_type="application/json", cookie=None):
+        def reply(self, code, value, content_type="application/json", cookie=()):
             body = value if isinstance(value, bytes) else json.dumps(value).encode()
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -47,10 +66,10 @@ def serve(observer, address=("0.0.0.0", 8089)):
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'",
             )
-            if cookie:
-                self.send_header("Set-Cookie", cookie)
+            for item in [cookie] if isinstance(cookie, str) else cookie:
+                self.send_header("Set-Cookie", item)
             self.end_headers()
             self.wfile.write(body)
 
@@ -66,7 +85,7 @@ def serve(observer, address=("0.0.0.0", 8089)):
             url = urlsplit(self.path)
             if url.path in ("/", "/dashboard"):
                 self.send_response(302)
-                self.send_header("Location", "/dashboard/")
+                self.send_header("Location", "dashboard/")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
@@ -199,18 +218,20 @@ def serve(observer, address=("0.0.0.0", 8089)):
             )
             catalog_route = self.path == PREFIX + "/catalog"
             manage_route = self.path == MANAGE
+            challenge_route = self.path == PREFIX + "/challenge"
             if (
                 not restart
                 and not config_route
                 and not catalog_route
                 and not manage_route
+                and not challenge_route
                 and self.path not in (PREFIX + "/login", PREFIX + "/logout")
             ):
                 self.reply(405, {"error": "Unsupported dashboard action"})
                 return
             # Requiring a browser Origin blocks cross-origin login and logout.
             if (
-                self.headers.get("Origin") != "http://" + self.headers.get("Host", "")
+                not same_origin(self.headers)
                 or self.headers.get("Content-Type") != "application/json"
             ):
                 self.reply(403, {"error": "Same-origin JSON request required"})
@@ -226,7 +247,7 @@ def serve(observer, address=("0.0.0.0", 8089)):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= (
-                    131072 if config_route or catalog_route else 1024
+                    131072 if config_route or catalog_route else 4096
                 ) or self.headers.get("Transfer-Encoding"):
                     raise ValueError("Invalid body")
                 body = json.loads(self.rfile.read(length))
@@ -284,6 +305,22 @@ def serve(observer, address=("0.0.0.0", 8089)):
                     )
                     self.reply(status, result)
                     return
+                if challenge_route:
+                    purpose = body.get("purpose") if isinstance(body, dict) else None
+                    if set(body) != {"purpose"} or purpose not in ("login", "reveal"):
+                        raise ValueError("Invalid body")
+                    if purpose == "reveal" and not access.valid(self.session()):
+                        self.reply(401, {"error": "Owner sign-in required"})
+                        return
+                    self.reply(
+                        200,
+                        {
+                            "challenge": access.challenge(purpose),
+                            "kind": OWNER_KIND,
+                            "audience": OWNER_AUDIENCE,
+                        },
+                    )
+                    return
                 if self.path == PREFIX + "/logout":
                     if body != {}:
                         raise ValueError("Invalid body")
@@ -291,16 +328,17 @@ def serve(observer, address=("0.0.0.0", 8089)):
                     self.reply(
                         200,
                         {"ok": True},
-                        cookie=f"{COOKIE}=; Path=/dashboard; HttpOnly; SameSite=Strict; Max-Age=0",
+                        cookie=[SESSION_COOKIE.format("", 0), LEGACY_COOKIE],
                     )
                     return
-                if (
-                    not isinstance(body, dict)
-                    or set(body) != {"key"}
-                    or not isinstance(body["key"], str)
+                if not isinstance(body, dict) or not (
+                    (set(body) == {"key"} and isinstance(body["key"], str))
+                    or (set(body) == {"event"} and isinstance(body["event"], dict))
                 ):
                     raise ValueError("Invalid body")
-                status, token = access.login(body["key"], self.client_address[0])
+                status, token = access.login(
+                    body.get("key"), self.client_address[0], event=body.get("event")
+                )
                 self.reply(
                     status,
                     {"ok": True}
@@ -309,10 +347,12 @@ def serve(observer, address=("0.0.0.0", 8089)):
                         "error": "Too many attempts; wait one minute"
                         if status == 429
                         else "Invalid access key"
+                        if "key" in body
+                        else "Not signed by this community's owner"
                     },
-                    cookie=f"{COOKIE}={token}; Path=/dashboard; HttpOnly; SameSite=Strict; Max-Age=28800"
+                    cookie=[SESSION_COOKIE.format(token, 28800), LEGACY_COOKIE]
                     if token
-                    else None,
+                    else (),
                 )
             except (ValueError, OSError):
                 self.reply(400, {"error": "Invalid request"})
@@ -331,12 +371,22 @@ def serve(observer, address=("0.0.0.0", 8089)):
 
             peer = self.client_address[0]
 
-            def verify(key):
-                status = access.verify(key, peer)
+            def verify(body):
+                event = body.get("event")
+                if event is not None and not isinstance(event, dict):
+                    raise Refused("Invalid owner signature")
+                key = body.get("key")
+                if event is None and (not isinstance(key, str) or not key):
+                    raise Refused("key is required")
+                status = access.verify(key, peer, event=event)
                 if status == 429:
                     raise Refused("Too many attempts; wait one minute")
                 if status != 200:
-                    raise Refused("The dashboard access key is incorrect")
+                    raise Refused(
+                        "Not signed by this community's owner"
+                        if event is not None
+                        else "The dashboard access key is incorrect"
+                    )
 
             try:
                 length = int(self.headers.get("Content-Length", "0"))

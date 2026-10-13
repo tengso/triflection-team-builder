@@ -564,3 +564,26 @@ and credentials all came back; a second restore was refused).
 by unit tests.
 
 GitHub Actions run `38147341386` passed for v0.8.10 (source `ee6d718f80318011c6c2911ed4cef388aebfb0bc`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.10` tags were promoted.
+
+## v0.8.11 — Mission Control inside the web Buzz app, clearer setup errors
+
+Mission Control now runs under a proxy path prefix (relative asset, API and
+redirect paths; a session cookie scoped by the browser to the API path), may be
+framed by its own origin, and checks same-origin requests with
+`Sec-Fetch-Site` (falling back to Origin host = Host), so it works behind a
+TLS-terminating gateway. The community owner can sign in, and confirm secret
+reveals, by signing a single-use challenge (kind 27235, `u=mission-control`)
+with their Buzz key; the embedding web Buzz page signs on request. The access
+key remains a fallback; both share the login limit. Covered by HTTP tests
+(owner login, replay, non-owner keys, wrong kind/age/audience, tampering,
+reveal confirmation and purpose binding, proxy paths, framing, same-origin
+rules) and an end-to-end browser run of a `BUZZ_MISSION_CONTROL=1` web build
+behind the repository's nginx configurations, both at a loopback root and
+under a gateway-style path prefix: automatic owner sign-in, a reveal confirmed
+with the Buzz key, a non-owner member refused, and the access-key fallback.
+
+Also: `init` checks key files before prompting and names the failing file;
+other failures are described by type without secret values; failed service
+starts list unhealthy services with redacted health and log lines and probe
+the relay's network paths (a stale raw-table DROP rule left by a killed Docker
+daemon blocked Redis on sandbox2); `doctor` runs the same probes.

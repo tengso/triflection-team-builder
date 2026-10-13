@@ -123,7 +123,8 @@ def text(body, name, required=True):
 
 
 def act(manager, body, verify):
-    """Run one management action. `verify(key)` re-checks the dashboard key."""
+    """Run one management action. `verify(body)` re-checks the owner (access key
+    or owner-signed challenge) for reveals."""
     if not isinstance(body, dict) or body.get("action") not in ACTIONS:
         raise Refused("Unknown management action")
     service = manager.deployments
@@ -195,7 +196,7 @@ def dispatch(manager, service, action, application, environment, body, verify):
         identifier = text(body, "id")
         if not CREDENTIAL.fullmatch(identifier):
             raise Refused("Unknown credential")
-        verify(text(body, "key"))
+        verify(body)
         path = (
             service.profiles.directory(application, environment)
             / "credentials"

@@ -17,9 +17,13 @@ import yaml
 
 from .storage import private_write
 
+OWNER_KIND = 27235  # NIP-98 HTTP auth kind; the "u" tag names Mission Control
+OWNER_AUDIENCE = "mission-control"
+CHALLENGE_TTL = 120
+
 
 class Access:
-    def __init__(self, root, clock=time.time):
+    def __init__(self, root, clock=time.time, owner=None):
         self.path = Path(root) / "dashboard-auth.json"
         self.clock = clock
         self.lock = threading.Lock()
@@ -27,6 +31,46 @@ class Access:
         self.attempts = OrderedDict()
         self.global_attempts = deque(maxlen=101)
         self.verifier = None
+        self.challenges = OrderedDict()
+        self.owner = owner
+
+    def challenge(self, purpose):
+        """A single-use nonce the owner signs to sign in ("login") or reveal."""
+        with self.lock:
+            now = self.clock()
+            for nonce, (expires, _) in list(self.challenges.items()):
+                if expires <= now:
+                    del self.challenges[nonce]
+            while len(self.challenges) >= 64:
+                self.challenges.popitem(last=False)
+            nonce = secrets.token_hex(32)
+            self.challenges[nonce] = (now + CHALLENGE_TTL, purpose)
+            return nonce
+
+    def owner_check(self, event, purpose, peer):
+        """Throttled check of an owner-signed challenge; the caller holds self.lock."""
+        from .nostr import tags, verify
+
+        status = self.throttle(peer)
+        if status != 200:
+            return status
+        now = self.clock()
+        try:
+            nonce = tags(event, "challenge")[0][0]
+            expires, expected = self.challenges.pop(nonce, (0, None))
+            valid = (
+                self.owner
+                and expires > now
+                and expected == purpose
+                and event["kind"] == OWNER_KIND
+                and event["pubkey"] == self.owner
+                and abs(event["created_at"] - now) <= CHALLENGE_TTL
+                and [[OWNER_AUDIENCE]] == tags(event, "u")
+                and verify(event)
+            )
+        except (KeyError, IndexError, TypeError):
+            valid = False
+        return 200 if valid else 401
 
     def refresh(self):
         try:
@@ -39,9 +83,14 @@ class Access:
         now = self.clock()
         self.sessions = {k: v for k, v in self.sessions.items() if v > now}
 
-    def login(self, key, peer):
+    def login(self, key, peer, event=None):
+        """Sign in with the access key, or with an owner-signed "login" challenge."""
         with self.lock:
-            status = self.check(key, peer)
+            status = (
+                self.owner_check(event, "login", peer)
+                if event is not None
+                else self.check(key, peer)
+            )
             if status != 200:
                 return status, None
             now = self.clock()
@@ -51,13 +100,27 @@ class Access:
             self.sessions[token] = now + 8 * 3600
             return 200, token
 
-    def verify(self, key, peer):
-        """Re-check the access key for sensitive actions, with the login throttle."""
+    def verify(self, key, peer, event=None):
+        """Re-check the owner for sensitive actions, with the login throttle."""
         with self.lock:
-            return self.check(key, peer)
+            return (
+                self.owner_check(event, "reveal", peer)
+                if event is not None
+                else self.check(key, peer)
+            )
 
     def check(self, key, peer):
         """Throttled key comparison; the caller holds self.lock."""
+        status = self.throttle(peer)
+        if status != 200:
+            return status
+        digest = hashlib.sha256(key.encode()).hexdigest()
+        if not self.verifier or not hmac.compare_digest(digest, self.verifier):
+            return 401
+        return 200
+
+    def throttle(self, peer):
+        """Count one attempt; 429 past 5 a minute per peer or 100 overall."""
         self.refresh()
         now = self.clock()
         attempts = self.attempts.setdefault(peer, deque(maxlen=6))
@@ -71,9 +134,6 @@ class Access:
             return 429
         attempts.append(now)
         self.global_attempts.append(now)
-        digest = hashlib.sha256(key.encode()).hexdigest()
-        if not self.verifier or not hmac.compare_digest(digest, self.verifier):
-            return 401
         return 200
 
     def valid(self, token):
