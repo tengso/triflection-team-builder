@@ -336,7 +336,7 @@ should not linger.
 **Why:** an isolated Python environment for the Team Builder command.
 ```bash
 python3 -m venv ~/team-builder || { sudo apt-get install -y python3.12-venv && python3 -m venv ~/team-builder; }
-~/team-builder/bin/pip install -q 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.10/buzz_team_builder-0.8.10-py3-none-any.whl'
+~/team-builder/bin/pip install -q 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.11/buzz_team_builder-0.8.11-py3-none-any.whl'
 ~/team-builder/bin/team-builder --help | head -3
 echo '. ~/team-builder/bin/activate' >> ~/.bashrc && . ~/team-builder/bin/activate
 ```

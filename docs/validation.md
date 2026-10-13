@@ -587,3 +587,5 @@ other failures are described by type without secret values; failed service
 starts list unhealthy services with redacted health and log lines and probe
 the relay's network paths (a stale raw-table DROP rule left by a killed Docker
 daemon blocked Redis on sandbox2); `doctor` runs the same probes.
+
+GitHub Actions run `38353371157` passed for v0.8.11 (source `460ac46db1df5b01afe961df0480f36a346862f3`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.11` tags were promoted.

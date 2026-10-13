@@ -18,7 +18,7 @@ image IDs. It does not need Rust, a Hermes checkout, or a local Docker build.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.10/buzz_team_builder-0.8.10-py3-none-any.whl'
+pip install 'https://github.com/tengso/triflection-team-builder/releases/download/v0.8.11/buzz_team_builder-0.8.11-py3-none-any.whl'
 team-builder init \
   --bind 0.0.0.0 \
   --port 3100
@@ -292,7 +292,7 @@ history; workspaces, skills and Buzz conversations are preserved.
 [the user guide](docs/user-guide.md#8-operations)). They run from the wheel, so
 installing it is enough to use them.
 
-**Upgrading to 0.8.10 from 0.8.x or 0.7.x** needs only `team-builder upgrade --manager-only`:
+**Upgrading to 0.8.11 from 0.8.x or 0.7.x** needs only `team-builder upgrade --manager-only`:
 the new release tools and runbook skill ship in each agent's managed bundle,
 which the restarted manager rewrites before restarting only affected gateways;
 worker containers and detached app servers are retained. A full `upgrade` also works.
