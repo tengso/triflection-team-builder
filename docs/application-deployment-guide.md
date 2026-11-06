@@ -526,7 +526,7 @@ proposal using the profile, even if its name has not changed.
 | Login succeeds but access is denied | Verify the application's user-role mapping; a valid login file does not grant database-backed roles. |
 | Approval rejected | Reply to the exact current proposal as the owner. Changed credentials/configuration or an intervening operation require a new plan. |
 | Proposal cannot be published | Verify the agent and owner are members of the proposal channel and the agent has the exact application/environment grant (or is a release agent, for a new application). COA does not need to join. |
-| Automatic run blocked, agent silent | Check the policy has a `notification_channel` containing both agents, and that the agents run v0.8.0 or newer (0.7.0 notices did not wake buzz-acp agents). Mention the agent to prompt it. |
+| Automatic run blocked, agent silent | Check the policy has a `notification_channel` containing the release agent(s), and that the agents run v0.8.0 or newer (0.7.0 notices did not wake buzz-acp agents). Mention the agent to prompt it. |
 | Production checks failed after promotion | Oppo inspects the masked check output; with `production_rollback: agent` it restores the previous release, with `automatic` the manager already did. |
 | Agent says required tool arguments are missing | Start a fresh thread and verify its current deployment tools. Do not repeatedly approve or retry an empty tool call. |
 | Running but unhealthy | Inspect the dashboard readiness reason and logs. Running is not ready; the application may still lack valid configuration or dependencies. |

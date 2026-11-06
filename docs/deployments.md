@@ -472,7 +472,7 @@ For other applications the policy fields are:
 | `staging_agent`, `production_agent` | Agents with those exact deployment grants |
 | `staging_profile`, `production_profile` | Operator-provisioned profiles |
 | `checks` | One to eight `{id, service, command, timeout}` checks; timeout 1–300 seconds, run in both environments. `{environment}` in a command is replaced with `staging` or `production`, so one repository-owned entrypoint such as `["python", "-m", "acceptance", "--environment", "{environment}"]` can serve both. |
-| `notification_channel` | Optional managed channel ID shared by both release agents (and the owner, for owner requests) |
+| `notification_channel` | Optional managed channel ID containing the release agent(s) (and the owner, for owner requests) |
 | `production_rollback` | `agent` (default): the production agent may call `rollback_production` after failed production checks; `automatic`: the manager restores the previous release immediately; `off`: rollback needs an owner-approved plan |
 | `staging_diagnostics`, `production_diagnostics` | `redacted` (default): assigned agents see masked output of failed checks and masked log tails; `summary`: pass/fail and recognized log entries only. Policies registered before these fields existed keep production at `summary` |
 
@@ -483,10 +483,12 @@ template for such an entrypoint. Release agents can author and propose the whole
 policy with `configure_release_policy`; enabling it still requires the owner's
 approval.
 
-Use a shared notification channel for two distinct agents. Handoff, completion and
-failure messages mention the responsible agent and are retried using the same
-signed event. Delivery failure does not stop deployment; dashboard records remain
-available. Omit this field for one agent responsible for both scopes.
+Use a notification channel that contains the release agent(s). With two agents,
+handoff, completion and failure messages mention the responsible agent and are
+retried using the same signed event. With one agent responsible for both scopes,
+there is no handoff: only blocked runs post a notice, signed by the manager's relay
+identity (agents ignore their own messages) and mentioning the agent. Delivery
+failure does not stop deployment; dashboard records remain available.
 
 ### Routine operation
 

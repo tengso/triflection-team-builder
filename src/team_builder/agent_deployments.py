@@ -426,8 +426,8 @@ inspect, list and preflight tools answer "no access"; that is expected. Start wi
    (`{{environment}}` in the policy command is replaced with staging/production).
    Merged code is the trust boundary: open a pull request and ask for review.
 5. When `check_deployment_preflight` passes in both environments, propose
-   `configure_release_policy` with `enabled: true`, both agents, the profiles,
-   checks calling the acceptance entrypoint, the shared notification channel,
+   `configure_release_policy` with `enabled: true`, the agent(s), the profiles,
+   checks calling the acceptance entrypoint, the notification channel,
    `production_rollback` and the diagnostics settings.
    A policy change replaces the whole policy: read it with
    `inspect_release_automation` right before proposing, copy every field you

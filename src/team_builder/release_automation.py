@@ -78,10 +78,6 @@ class Automation:
                     raise ValueError(
                         "Release agents must belong to the notification channel"
                     )
-            if policy["staging_agent"] == policy["production_agent"]:
-                raise ValueError(
-                    "Use dashboard notifications for a single release agent"
-                )
         version = generation(policy)
         # Keep executable check specifications out of public registry/snapshots.
         private_write(self.root / (version + ".json"), policy)
@@ -453,16 +449,32 @@ raise SystemExit(code)
         """Durable, idempotent technical handoff; no COA or owner signing key."""
         if not policy.get("notification_channel"):
             return
-        if run["state"] == "active" and run["stage"] != "production":
+        single = policy["staging_agent"] == policy["production_agent"]
+        if run["state"] == "active" and (single or run["stage"] != "production"):
+            return
+        if single and run["state"] != "blocked":
+            # One agent runs both stages: no handoff, and success needs no turn.
             return
         manager = self.service.manager
         try:
             channel = manager.resource(policy["notification_channel"], "channel")
             target = manager.resource(policy[run["stage"] + "_agent"], "agent")
-            sender_role = (
-                "staging_agent" if run["stage"] == "production" else "production_agent"
-            )
-            sender = manager.resource(policy[sender_role], "agent")
+            if not single:
+                sender_role = (
+                    "staging_agent"
+                    if run["stage"] == "production"
+                    else "production_agent"
+                )
+                sender = manager.resource(policy[sender_role], "agent")
+            else:
+                # buzz-acp drops self-authored events, so the manager's relay
+                # identity signs a single agent's notice to wake it.
+                sender = {
+                    "pubkey": manager.buzz.pubkey,
+                    "secret": manager.secrets["admin"],
+                    "auth_tag": None,
+                    "channel_ids": [channel["uuid"]],
+                }
             authoritative = manager.buzz.channel(channel["uuid"])
             if not authoritative or any(
                 a["pubkey"] not in authoritative["roles"]

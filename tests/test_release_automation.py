@@ -247,6 +247,38 @@ def test_notification_retries_same_signed_event_without_duplicate(manager):
     assert ["p", actual["pubkey"]] in event["tags"]
 
 
+def test_single_release_agent_is_woken_by_manager_signed_failure_notice(manager):
+    d, policy = prepare(manager)
+    cody = {**manager.resource("coa", "agent"), "id": "cody", "name": "Cody"}
+    cody["channel_ids"] = ["channel"]
+    manager.resource = Mock(
+        side_effect=lambda id, kind: {"uuid": "channel"} if kind == "channel" else cody
+    )
+    # One agent for both scopes may now use a notification channel.
+    policy.update(production_agent="cody", notification_channel="office")
+    d.automation.configure(policy)
+    manager.buzz.channel = Mock(
+        return_value={"roles": {cody["pubkey"]: "bot", manager.buzz.pubkey: "owner"}}
+    )
+    actor = Mock()
+    manager.actor = Mock(return_value=actor)
+    run = {
+        "id": "run",
+        "application": "portal",
+        "release": "ci-20-1",
+        "stage": "staging",
+        "reason": "UAT acceptance checks failed",
+    }
+    for state, stage in (("active", "production"), ("succeeded", "production")):
+        d.automation.notify({**run, "state": state, "stage": stage}, policy)
+    assert not actor.publish.called
+    d.automation.notify({**run, "state": "blocked"}, policy)
+    event = actor.publish.call_args.args[0]
+    # buzz-acp drops self-authored events: the manager signs, the agent is tagged.
+    assert event["pubkey"] == manager.buzz.pubkey != cody["pubkey"]
+    assert ["p", cody["pubkey"]] in event["tags"]
+
+
 def test_owner_is_asked_for_missing_credentials_with_host_command(manager):
     d, policy = prepare(manager)
     for env in ("staging", "production"):

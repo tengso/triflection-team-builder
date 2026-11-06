@@ -589,3 +589,13 @@ the relay's network paths (a stale raw-table DROP rule left by a killed Docker
 daemon blocked Redis on sandbox2); `doctor` runs the same probes.
 
 GitHub Actions run `38353371157` passed for v0.8.11 (source `460ac46db1df5b01afe961df0480f36a346862f3`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.11` tags were promoted.
+
+## v0.8.12 — Failure notices for a single release agent
+
+A release policy may name one agent for both staging and production together
+with a notification channel. With one agent there is no handoff and successful
+runs post nothing; a blocked run posts a notice mentioning the agent, signed by
+the manager's relay identity because `buzz-acp` drops self-authored events.
+Covered by a unit test (no notice while active or after success; the blocked
+notice is manager-signed and tags the agent) and the existing two-agent
+notification tests.
