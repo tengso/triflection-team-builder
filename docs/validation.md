@@ -599,3 +599,5 @@ the manager's relay identity because `buzz-acp` drops self-authored events.
 Covered by a unit test (no notice while active or after success; the blocked
 notice is manager-signed and tags the agent) and the existing two-agent
 notification tests.
+
+GitHub Actions run `42181068210` passed for v0.8.12 (source `19443a518d723ccd3480f31c2e4670417a852012`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.12` tags were promoted.
