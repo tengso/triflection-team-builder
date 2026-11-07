@@ -615,3 +615,5 @@ Covered by unit tests (no production job or repeated request while waiting;
 non-owner, other text and wrong-parent replies ignored; approve deploys;
 reject; supersede; policy validation). Buzz reply events were checked on the
 HTI relay to carry a `reply` e-tag marker.
+
+GitHub Actions run `42336744326` passed for v0.8.13 (source `3542c4d49577b4d99fd020b237cfe48f2b30d2d0`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.13` tags were promoted.
