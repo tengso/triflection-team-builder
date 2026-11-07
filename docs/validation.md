@@ -629,3 +629,5 @@ request's thread (NIP-10 root, else lone reply), still owner-signed, in the
 approval channel and after the request. Covered by unit tests (opener posted
 once; a reply addressed to the opener approves; replies in another thread are
 ignored). Both behaviours were reproduced on the HTI relay.
+
+GitHub Actions run `42342015807` passed for v0.8.14 (source `84de134f82732275948347b7ef9c4e3a401e407d`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.14` tags were promoted.
