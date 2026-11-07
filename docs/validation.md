@@ -642,3 +642,5 @@ either form. Covered by unit tests (p-tag form approves a proposal and a
 production request; text-only "@Name" and other agents' tags are still refused)
 and by the owner's real signed reply from the HTI relay, which now reads
 `approve`.
+
+GitHub Actions run `42350067874` passed for v0.8.15 (source `22e0a591e369eb77ec3c8f462ef6f3e5b7bd06f9`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.15` tags were promoted.
