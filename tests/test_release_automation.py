@@ -7,6 +7,7 @@ from test_deployments import setup
 
 from team_builder.deployment_api import handle
 from team_builder.deployments import Deployments, token
+from team_builder.nostr import sign
 
 
 def prepare(manager):
@@ -409,3 +410,120 @@ def test_detached_checks_do_not_attach_unused_output_streams():
         "AttachStderr": False,
     }
     assert docker.call.call_args_list[1].kwargs["json"] == {"Detach": True}
+
+
+def approval_setup(manager):
+    from team_builder.nostr import key, public
+
+    d, policy = prepare(manager)
+    oppo = {**manager.resource("coa", "agent"), "id": "oppo", "name": "Oppo"}
+    oppo["channel_ids"] = ["ops"]
+    other = key()
+    manager.resource = Mock(
+        side_effect=lambda id, kind: {"uuid": "ops"} if kind == "channel" else oppo
+    )
+    owner = manager.config["owner"]
+    manager.buzz.channel = Mock(
+        return_value={"roles": {oppo["pubkey"]: "bot", owner: "member"}}
+    )
+    replies = []
+    manager.buzz.query = Mock(return_value=replies)
+    actor = Mock()
+    manager.actor = Mock(return_value=actor)
+    policy.update(production_approval=True, approval_channel="production-operations")
+    d.automation.configure(policy)
+    d.automation.polled = {}
+
+    def reply(content, secret=None, parent=None, mention=False):
+        request = d.automation.status("portal")["runs"][0]["approval_request"]
+        tag_list = [
+            ["h", "ops"],
+            ["e", parent or request["event"], "", "reply"],
+        ]
+        if mention:
+            tag_list.append(["mention", oppo["pubkey"], "agent-address"])
+        replies.append(sign(secret or manager.owner_secret, 9, tag_list, content))
+        d.automation.polled = {}
+
+    return d, actor, reply, public(other), other
+
+
+def advance_to_approval(d):
+    d.automation.tick()
+    run_jobs(d)
+    d.automation.tick()
+    return d.automation.status("portal")["runs"][0]
+
+
+def test_production_waits_for_owner_approval_in_channel(manager):
+    d, actor, reply, _, stranger = approval_setup(manager)
+    run = advance_to_approval(d)
+    assert run["state"] == "awaiting_approval" and run["stage"] == "production"
+    request = actor.publish.call_args.args[0]
+    assert request["pubkey"] == manager.resource("oppo", "agent")["pubkey"]
+    assert ["p", manager.config["owner"]] in request["tags"]
+    assert "ci-20-1" in request["content"] and "approve" in request["content"]
+    # No production job, and repeated ticks neither deploy nor re-post.
+    for _ in range(3):
+        d.automation.tick()
+        run_jobs(d)
+    assert [j["environment"] for j in d.db.list("job")] == ["staging"]
+    assert actor.publish.call_count == 1
+    # Non-owner replies, other words and replies to other messages are ignored.
+    reply("approve", secret=stranger)
+    reply("looks good")
+    reply("approve", parent="f" * 64)
+    d.automation.tick()
+    assert d.automation.status("portal")["runs"][0]["state"] == "awaiting_approval"
+    reply("@Oppo approve", mention=True)
+    d.automation.tick()
+    run_jobs(d)
+    d.automation.tick()
+    run = d.automation.status("portal")["runs"][0]
+    assert run["state"] == "succeeded" and run["approval"]["event"]
+    assert {j["environment"] for j in d.db.list("job")} == {"staging", "production"}
+
+
+def test_owner_rejection_skips_release_and_newer_release_supersedes(manager):
+    d, _, reply, _, _ = approval_setup(manager)
+    advance_to_approval(d)
+    reply("reject")
+    d.automation.tick()
+    run = d.automation.status("portal")["runs"][0]
+    assert run["state"] == "rejected"
+    d.automation.tick()
+    assert [j["environment"] for j in d.db.list("job")] == ["staging"]
+    assert len(d.automation.status("portal")["runs"]) == 1
+    for env in ("staging", "production"):
+        d.release(
+            {
+                "id": "ci-21-1",
+                "application": "portal",
+                "environment": env,
+                "commit": "b" * 40,
+                "images": {"ui": "sha256:" + "b" * 64},
+            }
+        )
+    run = advance_to_approval(d)
+    assert run["release"] == "ci-21-1" and run["state"] == "awaiting_approval"
+    for env in ("staging", "production"):
+        d.release(
+            {
+                "id": "ci-22-1",
+                "application": "portal",
+                "environment": env,
+                "commit": "c" * 40,
+                "images": {"ui": "sha256:" + "c" * 64},
+            }
+        )
+    d.automation.tick()
+    runs = {r["release"]: r for r in d.automation.status("portal")["runs"]}
+    assert runs["ci-21-1"]["state"] == "superseded"
+    assert runs["ci-22-1"]["stage"] == "staging"
+
+
+def test_production_approval_requires_channel(manager):
+    d, policy = prepare(manager)
+    policy["production_approval"] = True
+    with pytest.raises(ValueError, match="approval_channel"):
+        d.automation.configure(policy)

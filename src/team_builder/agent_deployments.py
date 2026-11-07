@@ -438,6 +438,10 @@ inspect, list and preflight tools answer "no access"; that is expected. Start wi
    `approve_configuration_change` (deployment plans: `approve_deployment`) with
    that reply's Event ID. You are woken for every owner `approve` in your
    channels; if it replies to someone else's proposal, do nothing.
+   When a policy has `production_approval`, the manager posts the production
+   approval request under the production agent's name after UAT passes, and
+   acts on the owner's `approve` or `reject` reply itself. Do not call any
+   approval tool for it; `inspect_release_automation` shows the outcome.
 
 ## Waiting for a CI release
 

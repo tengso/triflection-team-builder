@@ -13,7 +13,7 @@ from pydantic import Field
 
 from .deployments import Slug, Strict
 from .docker import generation
-from .nostr import sign
+from .nostr import sign, tags
 from .storage import private_write
 
 
@@ -41,9 +41,15 @@ class Policy(Strict):
     # redacted: assigned agents see masked check output and log tails.
     staging_diagnostics: Literal["redacted", "summary"] = "redacted"
     production_diagnostics: Literal["redacted", "summary"] = "redacted"
+    # After UAT passes, the production agent asks the owner in approval_channel;
+    # production is deployed only after the owner replies approve.
+    production_approval: bool = False
+    approval_channel: Slug | None = None
 
 
 VERIFY_INTERVAL = 60
+APPROVAL_POLL = 15
+DECISIONS = ("approve", "reject")
 OUTPUT_LIMIT = 2000
 
 
@@ -51,6 +57,7 @@ class Automation:
     def __init__(self, service):
         self.service = service
         self.root = service.root / "automation"
+        self.polled = {}
 
     def configure(self, policy):
         policy = Policy.model_validate(policy).model_dump()
@@ -77,6 +84,20 @@ class Automation:
                 if channel["uuid"] not in agent["channel_ids"]:
                     raise ValueError(
                         "Release agents must belong to the notification channel"
+                    )
+        if policy["production_approval"]:
+            if not policy["approval_channel"]:
+                raise ValueError("production_approval needs an approval_channel")
+            if policy["enabled"]:
+                channel = self.service.manager.resource(
+                    policy["approval_channel"], "channel"
+                )
+                agent = self.service.manager.resource(
+                    policy["production_agent"], "agent"
+                )
+                if channel["uuid"] not in agent["channel_ids"]:
+                    raise ValueError(
+                        "The production agent must belong to the approval channel"
                     )
         version = generation(policy)
         # Keep executable check specifications out of public registry/snapshots.
@@ -218,6 +239,12 @@ raise SystemExit(code)
             or job["configuration"] != run["bindings"][env]
         ):
             raise ValueError("Automatic release plan changed")
+        if (
+            env == "production"
+            and policy.get("production_approval")
+            and not run.get("approval")
+        ):
+            raise ValueError("Production deployment is waiting for owner approval")
         if env == "production" and self.current_evidence(job["application"]) != run.get(
             "evidence"
         ):
@@ -333,6 +360,12 @@ raise SystemExit(code)
                 stage="production",
                 reason="UAT passed; handed off to the production release agent",
             )
+            if policy.get("production_approval"):
+                run.update(
+                    state="awaiting_approval",
+                    reason="UAT passed; waiting for owner approval in "
+                    + policy["approval_channel"],
+                )
             self.save(run)
         else:
             if not self.acceptance(run, policy, env):
@@ -372,8 +405,13 @@ raise SystemExit(code)
                 "Retry limit reached; fix configuration or publish a new release"
             )
         run.pop(environment + "_plan", None)
+        approval_pending = (
+            environment == "production"
+            and policy.get("production_approval")
+            and not run.get("approval")
+        )
         run.update(
-            state="active",
+            state="awaiting_approval" if approval_pending else "active",
             retries=run.get("retries", 0) + 1,
             owner_action=None,
             reason="Assigned agent requested a bounded retry",
@@ -448,6 +486,9 @@ raise SystemExit(code)
     def notify(self, run, policy):
         """Durable, idempotent technical handoff; no COA or owner signing key."""
         if not policy.get("notification_channel"):
+            return
+        if run["state"] in ("awaiting_approval", "superseded", "rejected"):
+            # The approval request is the production stage's only message.
             return
         single = policy["staging_agent"] == policy["production_agent"]
         if run["state"] == "active" and (single or run["stage"] != "production"):
@@ -529,6 +570,135 @@ raise SystemExit(code)
         except Exception:  # noqa: BLE001 -- durable retry; notifications do not block releases
             return
 
+    def await_approval(self, run, policy):
+        """Post the production agent's approval request, then act on the owner's reply."""
+        manager = self.service.manager
+        channel = manager.resource(policy["approval_channel"], "channel")
+        agent = manager.resource(policy["production_agent"], "agent")
+        owner = manager.config["owner"]
+        request = run.get("approval_request")
+        if not request:
+            authoritative = manager.buzz.channel(channel["uuid"])
+            if not authoritative or any(
+                key not in authoritative["roles"] for key in (owner, agent["pubkey"])
+            ):
+                self.block(
+                    run,
+                    "The owner and the production agent must belong to the approval channel",
+                )
+                return
+            checks = ", ".join(
+                c["id"] + (" passed" if c["passed"] else " failed")
+                for c in run.get("staging_checks") or []
+            )
+            notice_id = generation([run["id"], "approval-request"])
+            try:
+                self.post(
+                    notice_id,
+                    agent,
+                    channel,
+                    [["p", owner]],
+                    "Release "
+                    + run["release"]
+                    + " of "
+                    + run["application"]
+                    + " (commit "
+                    + run["commit"][:12]
+                    + ") is deployed to staging and passed its checks"
+                    + (" (" + checks + ")" if checks else "")
+                    + ". Reply `approve` to this message to deploy it to production, or `reject` to skip this release.",
+                )
+            except Exception:  # noqa: BLE001 -- the signed request is retried next tick
+                return
+            event = self.service.db.get("automation-notice/" + notice_id)["event"]
+            run["approval_request"] = {
+                "event": event["id"],
+                "channel": policy["approval_channel"],
+                "created_at": event["created_at"],
+            }
+            self.save(run)
+            return
+        now = time.time()
+        if now - self.polled.get(run["id"], 0) < APPROVAL_POLL:
+            return
+        self.polled[run["id"]] = now
+        decision = self.decision(request, agent, channel, owner)
+        if not decision:
+            return
+        word, reply = decision
+        record = {"event": reply["id"], "at": reply["created_at"]}
+        if word == "reject":
+            run.update(
+                state="rejected",
+                rejection=record,
+                reason="Owner rejected the production deployment",
+            )
+            self.save(run)
+            return
+        if self.current_evidence(run["application"]) != run.get("evidence"):
+            # Re-run UAT on retry; the stale request no longer applies.
+            for key in ("staging_plan", "approval_request", "evidence"):
+                run.pop(key, None)
+            run["stage"] = "staging"
+            self.block(
+                run, "UAT changed while waiting for approval; no promotion permitted"
+            )
+            return
+        run.update(
+            state="active",
+            approval=record,
+            reason="Owner approved the production deployment",
+        )
+        self.save(run)
+        self.advance(run, policy)
+
+    def decision(self, request, agent, channel, owner):
+        """The owner's first signed approve/reject reply to the exact request."""
+        replies = self.service.manager.buzz.query(
+            [{"kinds": [9], "#e": [request["event"]], "limit": 50}]
+        )
+        for reply in sorted(replies, key=lambda e: e["created_at"]):
+            parents = [
+                t[0] for t in tags(reply, "e") if len(t) >= 3 and t[2] == "reply"
+            ]
+            if (
+                reply["pubkey"] != owner
+                or parents != [request["event"]]
+                or tags(reply, "h") != [[channel["uuid"]]]
+                or reply["created_at"] < request["created_at"]
+            ):
+                continue
+            text = reply["content"].strip()
+            # Buzz prefixes replies to an agent with its verified mention.
+            prefix = "@" + agent["name"]
+            if (
+                [agent["pubkey"], "agent-address"] in tags(reply, "mention")
+                and text.startswith(prefix)
+                and text[len(prefix) : len(prefix) + 1].isspace()
+            ):
+                text = text[len(prefix) :].strip()
+            if text.lower() in DECISIONS:
+                return text.lower(), reply
+        return None
+
+    def supersede(self, run, reason):
+        run.update(state="superseded", reason=reason)
+        self.save(run)
+
+    def latest(self, application):
+        with self.service.lock:
+            releases = self.service.db.list("release")
+        candidates = [
+            r
+            for r in releases
+            if r["application"] == application
+            and r["environment"] == "staging"
+            and re.fullmatch(r"ci-[0-9]+-[0-9]+", r["id"])
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda r: tuple(map(int, r["id"].split("-")[1:])))
+
     def tick(self):
         with self.service.lock:
             policies = self.service.db.list("automation_policy")
@@ -540,32 +710,30 @@ raise SystemExit(code)
                 policy, public = self.policy(public["application"])
                 application = public["application"]
                 runs = self.status(application)["runs"]
-                active = next(
-                    (
-                        r
-                        for r in runs
-                        if r["state"] == "active" and r["policy"] == public["version"]
-                    ),
-                    None,
+                current = [r for r in runs if r["policy"] == public["version"]]
+                active = next((r for r in current if r["state"] == "active"), None)
+                waiting = next(
+                    (r for r in current if r["state"] == "awaiting_approval"), None
                 )
+                for r in runs:
+                    if r["state"] == "awaiting_approval" and r is not waiting:
+                        self.supersede(r, "Release policy changed")
                 if active:
                     run = active
                 else:
-                    with self.service.lock:
-                        releases = self.service.db.list("release")
-                    candidates = [
-                        r
-                        for r in releases
-                        if r["application"] == application
-                        and r["environment"] == "staging"
-                        and re.fullmatch(r"ci-[0-9]+-[0-9]+", r["id"])
-                    ]
-                    if not candidates:
+                    release = self.latest(application)
+                    if waiting:
+                        if release and release["id"] != waiting["release"]:
+                            self.supersede(
+                                waiting, "Superseded by newer release " + release["id"]
+                            )
+                        else:
+                            run = waiting
+                            self.await_approval(run, policy)
+                            self.notify(run, policy)
+                            continue
+                    if not release:
                         continue
-                    release = max(
-                        candidates,
-                        key=lambda r: tuple(map(int, r["id"].split("-")[1:])),
-                    )
                     target = self.service.get(
                         "release/" + application + "/production/" + release["id"]
                     )
@@ -598,6 +766,8 @@ raise SystemExit(code)
                     }
                     self.save(run)
                 self.advance(run, policy)
+                if run["state"] == "awaiting_approval":
+                    self.await_approval(run, policy)
                 self.notify(run, policy)
             except Exception:  # noqa: BLE001 -- leave a durable, sanitized technical failure
                 if run:

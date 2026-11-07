@@ -79,6 +79,11 @@ For HTI, the included example policy checks the UI, authenticated API, database 
 and login configuration in both environments. These checks can be extended for
 other applications. They do not replace all possible human product acceptance.
 
+To keep a human decision before production, set `production_approval: true` and
+an `approval_channel` (for HTI, Production Operations). After UAT passes, the
+production agent posts the release in that channel and the owner replies
+`approve` (deploy to production) or `reject` (skip this release) to that message.
+
 Watch **Mission Control → Deployments → Automatic releases**. A successful run
 means its configured UAT and production checks passed. When a stage blocks, the
 responsible agent is notified in the notification channel and investigates with

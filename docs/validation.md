@@ -601,3 +601,17 @@ notice is manager-signed and tags the agent) and the existing two-agent
 notification tests.
 
 GitHub Actions run `42181068210` passed for v0.8.12 (source `19443a518d723ccd3480f31c2e4670417a852012`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.12` tags were promoted.
+
+## v0.8.13 — Owner approval before production
+
+A release policy can set `production_approval` and an `approval_channel`. After
+UAT passes, the run waits in `awaiting_approval`; the production agent's signed
+request names the release, commit and UAT check results and mentions the owner.
+Only the owner's direct `approve` reply (optionally after Buzz's verified agent
+mention) in that channel deploys production; `reject` ends the run. A newer CI
+release or policy change supersedes a pending request; UAT changed while waiting
+blocks promotion; the production job is refused without a recorded approval.
+Covered by unit tests (no production job or repeated request while waiting;
+non-owner, other text and wrong-parent replies ignored; approve deploys;
+reject; supersede; policy validation). Buzz reply events were checked on the
+HTI relay to carry a `reply` e-tag marker.
