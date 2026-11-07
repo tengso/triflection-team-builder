@@ -417,34 +417,63 @@ def test_verified_mention_approval_remains_bound_to_exact_proposal(manager):
     )
     coa = manager.resource("coa", "agent")
 
-    def approval(content, mention, parent):
+    def approval(content, mention, parent, kind="mention"):
+        address = (
+            ["mention", mention, "agent-address"]
+            if kind == "mention"
+            else ["p", mention]
+        )
         event = sign(
             manager.owner_secret,
             9,
-            [
-                ["h", manager.config["office"]],
-                ["e", parent, "", "reply"],
-                ["mention", mention, "agent-address"],
-            ],
+            [["h", manager.config["office"]], ["e", parent, "", "reply"], address],
             content,
         )
         manager.buzz.events[event["id"]] = event
         return event["id"]
 
-    for content, mention, parent in [
-        ("@Chief of Agents approve", "0" * 64, proposal["message_id"]),
-        ("@Someone approve", coa["pubkey"], proposal["message_id"]),
-        ("@Chief of Agents approve extra", coa["pubkey"], proposal["message_id"]),
-        ("@Chief of Agents approve", coa["pubkey"], "0" * 64),
-    ]:
-        with pytest.raises(ValueError):
-            manager.approve(approval_event_id=approval(content, mention, parent))
+    for kind in ("mention", "p"):
+        for content, mention, parent in [
+            ("@Chief of Agents approve", "0" * 64, proposal["message_id"]),
+            ("@Someone approve", coa["pubkey"], proposal["message_id"]),
+            ("@Chief of Agents approve extra", coa["pubkey"], proposal["message_id"]),
+            ("@Chief of Agents approve", coa["pubkey"], "0" * 64),
+        ]:
+            with pytest.raises(ValueError):
+                manager.approve(
+                    approval_event_id=approval(content, mention, parent, kind)
+                )
     assert not d.db.list("job")
     result = manager.approve(
         approval_event_id=approval(
             "@Chief of Agents approve", coa["pubkey"], proposal["message_id"]
         )
     )
+    assert result["results"][0]["state"] == "queued"
+
+
+def test_notify_tagged_agent_address_approves_proposal(manager):
+    # Some Buzz clients address the agent with a p tag instead of a mention tag.
+    from team_builder.nostr import sign
+
+    d = setup(manager)
+    plan = d.plan("portal", release="r1")
+    proposal = manager.propose(
+        message(manager), [{"action": "execute_deployment", "plan_id": plan["plan_id"]}]
+    )
+    coa = manager.resource("coa", "agent")
+    event = sign(
+        manager.owner_secret,
+        9,
+        [
+            ["h", manager.config["office"]],
+            ["e", proposal["message_id"], "", "reply"],
+            ["p", coa["pubkey"]],
+        ],
+        "@Chief of Agents approve",
+    )
+    manager.buzz.events[event["id"]] = event
+    result = manager.approve(approval_event_id=event["id"])
     assert result["results"][0]["state"] == "queued"
 
 

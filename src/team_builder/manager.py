@@ -9,7 +9,16 @@ from .buzz import Buzz, policy
 from .community import configure_provider, invite, project
 from .docker import Docker
 from .models import RELEASE_CHANGES, validate
-from .nostr import attestation, key, public, reply_tags, sign, tags, wire
+from .nostr import (
+    attestation,
+    key,
+    public,
+    reply_tags,
+    sign,
+    strip_address,
+    tags,
+    wire,
+)
 from .repositories import link_github_repository
 from .runtime import start_agent
 from .storage import Registry
@@ -614,25 +623,19 @@ class Manager:
         if not row or (proposal_id is not None and row["id"] != proposal_id):
             raise ValueError("Owner must reply 'approve' directly to this proposal")
         proposal = json.loads(row["event"])
-        text = approval["content"].strip()
-        # Buzz inserts an addressed agent mention into replies. Accept only the
-        # proposal signer's verified mention, never an arbitrary text prefix.
-        if [proposal["pubkey"], "agent-address"] in tags(approval, "mention"):
-            signer = next(
-                (
-                    a
-                    for a in self.registry.list("agent")
-                    if a["pubkey"] == proposal["pubkey"]
-                ),
-                None,
-            )
-            prefix = "@" + signer["name"] if signer else ""
-            if (
-                prefix
-                and text.startswith(prefix)
-                and text[len(prefix) : len(prefix) + 1].isspace()
-            ):
-                text = text[len(prefix) :].strip()
+        # Buzz addresses replies to an agent with "@Name". Accept only the
+        # proposal signer's own tagged address, never an arbitrary text prefix.
+        signer = next(
+            (
+                a
+                for a in self.registry.list("agent")
+                if a["pubkey"] == proposal["pubkey"]
+            ),
+            None,
+        )
+        text = strip_address(
+            approval, proposal["pubkey"], signer["name"] if signer else ""
+        )
         if text.lower() != "approve":
             raise ValueError("Owner must reply 'approve' directly to this proposal")
         if tags(approval, "h") != tags(proposal, "h"):

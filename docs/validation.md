@@ -631,3 +631,14 @@ once; a reply addressed to the opener approves; replies in another thread are
 ignored). Both behaviours were reproduced on the HTI relay.
 
 GitHub Actions run `42342015807` passed for v0.8.14 (source `84de134f82732275948347b7ef9c4e3a401e407d`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.14` tags were promoted.
+
+## v0.8.15 — Agent address carried by a notify tag
+
+The Buzz app used on HTI addresses a reply to an agent as "@Cody approve" with a
+notify (`p`) tag for the agent and no `mention … agent-address` tag, so neither
+proposal approvals nor production approval replies were recognized. Both now use
+one helper that drops the leading "@Name" only when the named agent is tagged by
+either form. Covered by unit tests (p-tag form approves a proposal and a
+production request; text-only "@Name" and other agents' tags are still refused)
+and by the owner's real signed reply from the HTI relay, which now reads
+`approve`.

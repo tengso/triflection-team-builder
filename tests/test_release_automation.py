@@ -440,7 +440,9 @@ def approval_setup(manager):
     d.automation.configure(policy)
     d.automation.polled = {}
 
-    def reply(content, secret=None, parent=None, mention=False, root=None):
+    def reply(
+        content, secret=None, parent=None, mention=False, root=None, notify=False
+    ):
         request = d.automation.status("portal")["runs"][0]["approval_request"]
         tag_list = [["h", "ops"]]
         if root:
@@ -448,6 +450,8 @@ def approval_setup(manager):
         tag_list.append(["e", parent or request["event"], "", "reply"])
         if mention:
             tag_list.append(["mention", oppo["pubkey"], "agent-address"])
+        if notify:
+            tag_list.append(["p", oppo["pubkey"]])
         replies.append(sign(secret or manager.owner_secret, 9, tag_list, content))
         d.automation.polled = {}
 
@@ -483,10 +487,13 @@ def test_production_waits_for_owner_approval_in_channel(manager):
     reply("looks good")
     reply("approve", parent="f" * 64)
     reply("approve", root="f" * 64, parent=request["id"])
+    reply("@Oppo approve")  # addressed in text only, with no tag naming the agent
     d.automation.tick()
     assert d.automation.status("portal")["runs"][0]["state"] == "awaiting_approval"
     # A thread reply addressed to the opener, not the request, still decides.
-    reply("@Oppo approve", mention=True, root=request["id"], parent=opener["id"])
+    # A notify-tagged "@Oppo approve" (the Buzz app's format on HTI) addressed
+    # to the thread opener, not the request, decides.
+    reply("@Oppo approve", notify=True, root=request["id"], parent=opener["id"])
     d.automation.tick()
     run_jobs(d)
     d.automation.tick()

@@ -124,3 +124,24 @@ def reply_tags(parent):
     return ([["e", root, "", "root"]] if root != parent["id"] else []) + [
         ["e", parent["id"], "", "reply"]
     ]
+
+
+def strip_address(event, pubkey, name):
+    """Content without a leading "@Name " that addresses the agent.
+
+    Buzz clients tag the addressed agent either with a verified mention or a
+    notify (p) tag; only the named agent's own tag allows dropping the prefix.
+    """
+    text = event["content"].strip()
+    prefix = "@" + name
+    addressed = [pubkey, "agent-address"] in tags(event, "mention") or [pubkey] in [
+        t[:1] for t in tags(event, "p")
+    ]
+    if (
+        name
+        and addressed
+        and text.startswith(prefix)
+        and text[len(prefix) : len(prefix) + 1].isspace()
+    ):
+        return text[len(prefix) :].strip()
+    return text

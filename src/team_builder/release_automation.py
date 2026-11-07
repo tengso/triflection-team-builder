@@ -13,7 +13,7 @@ from pydantic import Field
 
 from .deployments import Slug, Strict
 from .docker import generation
-from .nostr import sign, tags
+from .nostr import sign, strip_address, tags
 from .storage import private_write
 
 
@@ -698,15 +698,7 @@ raise SystemExit(code)
         for reply in thread:
             if reply["pubkey"] != owner:
                 continue
-            text = reply["content"].strip()
-            # Buzz prefixes replies to an agent with its verified mention.
-            prefix = "@" + agent["name"]
-            if (
-                [agent["pubkey"], "agent-address"] in tags(reply, "mention")
-                and text.startswith(prefix)
-                and text[len(prefix) : len(prefix) + 1].isspace()
-            ):
-                text = text[len(prefix) :].strip()
+            text = strip_address(reply, agent["pubkey"], agent["name"])
             if text.lower() in DECISIONS:
                 return text.lower(), reply
         return None
