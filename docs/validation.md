@@ -617,3 +617,15 @@ reject; supersede; policy validation). Buzz reply events were checked on the
 HTI relay to carry a `reply` e-tag marker.
 
 GitHub Actions run `42336744326` passed for v0.8.13 (source `3542c4d49577b4d99fd020b237cfe48f2b30d2d0`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.13` tags were promoted.
+
+## v0.8.14 — Approval replies anywhere in the request thread
+
+The Buzz app on a relay without thread windows (pinned Buzz `c045321`) cannot
+open a thread with no replies ("Relay did not serve a signed thread window"),
+and its in-thread replies name the latest thread message, not the root, as
+their `reply` target. The approval request now gets a first thread message from
+the production agent, and the owner's `approve`/`reject` counts anywhere in the
+request's thread (NIP-10 root, else lone reply), still owner-signed, in the
+approval channel and after the request. Covered by unit tests (opener posted
+once; a reply addressed to the opener approves; replies in another thread are
+ignored). Both behaviours were reproduced on the HTI relay.

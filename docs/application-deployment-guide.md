@@ -82,7 +82,7 @@ other applications. They do not replace all possible human product acceptance.
 To keep a human decision before production, set `production_approval: true` and
 an `approval_channel` (for HTI, Production Operations). After UAT passes, the
 production agent posts the release in that channel and the owner replies
-`approve` (deploy to production) or `reject` (skip this release) to that message.
+`approve` (deploy to production) or `reject` (skip this release) in that message's thread.
 
 Watch **Mission Control → Deployments → Automatic releases**. A successful run
 means its configured UAT and production checks passed. When a stage blocks, the

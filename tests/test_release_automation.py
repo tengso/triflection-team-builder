@@ -427,19 +427,25 @@ def approval_setup(manager):
         return_value={"roles": {oppo["pubkey"]: "bot", owner: "member"}}
     )
     replies = []
-    manager.buzz.query = Mock(return_value=replies)
+    manager.buzz.query = Mock(
+        side_effect=lambda filters: [
+            e
+            for e in replies
+            if any(t[0] == "e" and t[1] in filters[0]["#e"] for t in e["tags"])
+        ]
+    )
     actor = Mock()
     manager.actor = Mock(return_value=actor)
     policy.update(production_approval=True, approval_channel="production-operations")
     d.automation.configure(policy)
     d.automation.polled = {}
 
-    def reply(content, secret=None, parent=None, mention=False):
+    def reply(content, secret=None, parent=None, mention=False, root=None):
         request = d.automation.status("portal")["runs"][0]["approval_request"]
-        tag_list = [
-            ["h", "ops"],
-            ["e", parent or request["event"], "", "reply"],
-        ]
+        tag_list = [["h", "ops"]]
+        if root:
+            tag_list.append(["e", root, "", "root"])
+        tag_list.append(["e", parent or request["event"], "", "reply"])
         if mention:
             tag_list.append(["mention", oppo["pubkey"], "agent-address"])
         replies.append(sign(secret or manager.owner_secret, 9, tag_list, content))
@@ -468,14 +474,19 @@ def test_production_waits_for_owner_approval_in_channel(manager):
         d.automation.tick()
         run_jobs(d)
     assert [j["environment"] for j in d.db.list("job")] == ["staging"]
-    assert actor.publish.call_count == 1
+    # The request, then one thread opener so clients can open the empty thread.
+    assert actor.publish.call_count == 2
+    opener = actor.publish.call_args.args[0]
+    assert ["e", request["id"], "", "root"] in opener["tags"]
     # Non-owner replies, other words and replies to other messages are ignored.
     reply("approve", secret=stranger)
     reply("looks good")
     reply("approve", parent="f" * 64)
+    reply("approve", root="f" * 64, parent=request["id"])
     d.automation.tick()
     assert d.automation.status("portal")["runs"][0]["state"] == "awaiting_approval"
-    reply("@Oppo approve", mention=True)
+    # A thread reply addressed to the opener, not the request, still decides.
+    reply("@Oppo approve", mention=True, root=request["id"], parent=opener["id"])
     d.automation.tick()
     run_jobs(d)
     d.automation.tick()

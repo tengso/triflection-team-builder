@@ -622,7 +622,27 @@ raise SystemExit(code)
         if now - self.polled.get(run["id"], 0) < APPROVAL_POLL:
             return
         self.polled[run["id"]] = now
-        decision = self.decision(request, agent, channel, owner)
+        thread = self.thread(request, channel)
+        if not run.get("thread_opened"):
+            if not thread:
+                # Buzz clients without relay thread windows cannot open an empty
+                # thread; a first reply lets the owner answer inside it.
+                try:
+                    self.post(
+                        generation([run["id"], "approval-thread"]),
+                        agent,
+                        channel,
+                        [
+                            ["e", request["event"], "", "root"],
+                            ["e", request["event"], "", "reply"],
+                        ],
+                        "Reply `approve` or `reject` in this thread to decide on this release.",
+                    )
+                except Exception:  # noqa: BLE001 -- retried on the next poll
+                    return
+            run["thread_opened"] = True
+            self.save(run)
+        decision = self.decision(thread, request, agent, owner)
         if not decision:
             return
         word, reply = decision
@@ -652,21 +672,31 @@ raise SystemExit(code)
         self.save(run)
         self.advance(run, policy)
 
-    def decision(self, request, agent, channel, owner):
-        """The owner's first signed approve/reject reply to the exact request."""
-        replies = self.service.manager.buzz.query(
-            [{"kinds": [9], "#e": [request["event"]], "limit": 50}]
+    def thread(self, request, channel):
+        """Messages in the request's thread (NIP-10: root marker, else lone reply)."""
+        events = self.service.manager.buzz.query(
+            [{"kinds": [9], "#e": [request["event"]], "limit": 100}]
         )
-        for reply in sorted(replies, key=lambda e: e["created_at"]):
-            parents = [
-                t[0] for t in tags(reply, "e") if len(t) >= 3 and t[2] == "reply"
-            ]
+        found = []
+        for event in events:
+            marked = {
+                t[2]: t[0]
+                for t in tags(event, "e")
+                if len(t) >= 3 and t[2] in ("root", "reply")
+            }
             if (
-                reply["pubkey"] != owner
-                or parents != [request["event"]]
-                or tags(reply, "h") != [[channel["uuid"]]]
-                or reply["created_at"] < request["created_at"]
+                "reply" in marked
+                and marked.get("root", marked["reply"]) == request["event"]
+                and tags(event, "h") == [[channel["uuid"]]]
+                and event["created_at"] >= request["created_at"]
             ):
+                found.append(event)
+        return sorted(found, key=lambda e: (e["created_at"], e["id"]))
+
+    def decision(self, thread, request, agent, owner):
+        """The owner's first signed approve/reject message in the request's thread."""
+        for reply in thread:
+            if reply["pubkey"] != owner:
                 continue
             text = reply["content"].strip()
             # Buzz prefixes replies to an agent with its verified mention.
