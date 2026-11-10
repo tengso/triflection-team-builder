@@ -644,3 +644,16 @@ and by the owner's real signed reply from the HTI relay, which now reads
 `approve`.
 
 GitHub Actions run `42350067874` passed for v0.8.15 (source `22e0a591e369eb77ec3c8f462ef6f3e5b7bd06f9`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.15` tags were promoted.
+
+## v0.8.16 — Technical-owner release agents
+
+`configure_release_agent` gains `technical_owner`. The setting is stored on the
+agent, so the generated instructions and release runbook (which replace the
+"no migrations" rule with schema-ownership rules) survive regeneration. A new
+agent tool, `run_service_command`, runs a command in a granted application
+container with named environment credentials injected through a one-shot 0400
+file that the wrapper deletes before running the command; output is masked.
+Covered by unit tests (non-owner refused; scope, service, credential and
+command validation; secret absent from exec arguments and output; rule text
+switches and survives regeneration). The file copy was checked against the HTI
+Docker engine.

@@ -140,6 +140,18 @@ TOOLS = {
         "Production agent: restore the previous release after a blocked run, if the policy allows. Images only.",
         {},
     ),
+    "run_service_command": (
+        "run-command",
+        [
+            ("application", REQUIRED),
+            ("service", REQUIRED),
+            ("command", REQUIRED),
+            ENVIRONMENT,
+            ("credentials", None),
+        ],
+        "Technical owner only: run a command (JSON list, no shell) inside a service container of an assigned application, e.g. the app's schema migration. credentials maps environment variable names to this environment's credential IDs; values are injected by the manager and masked in the output, which is returned with the exit code (10-minute limit).",
+        {},
+    ),
     "propose_configuration_change": (
         "propose-change",
         [("source_event_id", REQUIRED), ("operations", REQUIRED)],
@@ -153,7 +165,7 @@ TOOLS = {
         {},
     ),
 }
-JSON_PARAMS = {"operations"}
+JSON_PARAMS = {"operations", "command", "credentials"}
 
 
 COMMANDS = {
@@ -172,6 +184,7 @@ COMMANDS = {
     "retry_automatic_release": "automation-retry",
     "verify_release_checks": "verify",
     "rollback_production": "rollback",
+    "run_service_command": "run-command",
     "propose_configuration_change": "propose-change",
     "approve_configuration_change": "approve-change",
 }
@@ -241,7 +254,7 @@ def main(argv=None, transport=None):
     return 0
 
 
-def skill(assignments):
+def skill(assignments, technical_owner=False):
     """Managed SKILL.md documenting this CLI for one agent's assignments."""
     lines = [
         "---",
@@ -284,6 +297,10 @@ def skill(assignments):
         "- A queued job is not success. Poll `get-operation` until it reaches a terminal state and report the outcome.",
         "- Releases are registered by the operator; you cannot add images. Never deploy, touch databases, or seek Docker access from your terminal.",
     ]
+    if technical_owner:
+        lines[-1] = (
+            "- Releases are registered by the operator; you cannot add images. Make database and other in-application changes with `run-command`; never use Docker from your terminal."
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -360,7 +377,7 @@ EXAMPLE_OPERATIONS = [
 ]
 
 
-def runbook(assignments, cli=False):
+def runbook(assignments, cli=False, technical_owner=False):
     """Managed SKILL.md: the release agent's operating procedure (all harnesses)."""
     scope = ", ".join(assignments) or "no application yet (release agent)"
     tools = (
@@ -476,11 +493,32 @@ names the release being imported (wait), `current` means up to date, and only
 
 ## Rules
 
-- Never deploy, change databases or use Docker from your terminal; no migrations.
+{{RULES}}
 - Masked logs can still contain application data: summarize, never repost it.
 - Owner approval covers exactly the frozen proposal; propose again for changes.
 """
+    text = text.replace(
+        "{RULES}", TECHNICAL_OWNER_RULES if technical_owner else DEFAULT_RULES
+    )
     return text.replace("{EXAMPLE}", json.dumps(EXAMPLE_OPERATIONS, indent=2))
+
+
+DEFAULT_RULES = (
+    "- Never deploy, change databases or use Docker from your terminal; no migrations."
+)
+TECHNICAL_OWNER_RULES = """- You are the technical owner of your assigned environments: you do all
+  technical work there yourself, including database schema changes. Do not ask
+  the owner to run commands for you.
+- Schema changes: find the application's idempotent schema commands, run them
+  with `run_service_command` in the environment's service container (usually
+  the API service), passing the schema-owner credential by ID through
+  `credentials` (for HTI: `{"MYSQL_USER": "...", "MYSQL_PASSWORD": "mysql-owner-password"}`
+  as documented by the app). Run staging first, verify, then production before
+  the owner approves the production deployment. Report what you ran and the output.
+- Destructive changes (dropping or rewriting tables, columns or data) need an
+  explicit owner instruction first.
+- Never use Docker from your terminal; deploy only through the release tools.
+  Never print, request or repost secret values."""
 
 
 if __name__ == "__main__":

@@ -578,3 +578,42 @@ def test_stale_policy_proposals_are_rejected_without_side_effects(
                 }
             ]
         )
+
+
+def test_technical_owner_setting_rewrites_rules_and_survives_regeneration(
+    manager, create_ops, monkeypatch
+):
+    from team_builder.runtime import write_agent_files
+
+    engineer(manager, create_ops, monkeypatch)
+    managed = manager.root / "agents/engineer/managed"
+    manager.apply({"action": "configure_release_agent", "agent": "engineer"})
+    runbook = json.loads((managed / "skills.json").read_text())["team-release-runbook"]
+    assert (
+        "no migrations" in runbook
+        and "no migrations" in (managed / "SOUL.md").read_text()
+    )
+    manager.apply(
+        {
+            "action": "configure_release_agent",
+            "agent": "engineer",
+            "technical_owner": True,
+        }
+    )
+    # Regeneration (manager start, upgrade, config change) keeps the setting's rules.
+    agent = manager.resource("engineer", "agent")
+    write_agent_files(manager.root, manager.config, manager.secrets, agent)
+    runbook = json.loads((managed / "skills.json").read_text())["team-release-runbook"]
+    soul = (managed / "SOUL.md").read_text()
+    assert "no migrations" not in runbook and "no migrations" not in soul
+    assert "run_service_command" in runbook and "Technical ownership" in soul
+    # Disabling the release agent also drops technical ownership.
+    manager.apply(
+        {
+            "action": "configure_release_agent",
+            "agent": "engineer",
+            "enabled": False,
+            "technical_owner": True,
+        }
+    )
+    assert not manager.resource("engineer", "agent")["technical_owner"]

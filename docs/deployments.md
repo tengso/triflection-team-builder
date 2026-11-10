@@ -150,6 +150,7 @@ Every tool takes an `application`; `environment` defaults to `production`, excep
 | `get_service_logs` | Read diagnostics for `service`: `detail="summary"` (recognized entries) or `detail="redacted"` (last 200 lines, installation and environment secrets masked; staging, and production when the release policy allows). |
 | `verify_release_checks` | Run the release policy's acceptance checks now, at most once a minute. Does not deploy or spend a retry; failed checks include masked output. |
 | `rollback_production` | Production agent only: restore the previous production release after a blocked automatic run when the policy's `production_rollback` is `agent` (or `automatic`). Images only. |
+| `run_service_command` | Technical owner only (see below): run `command` (a JSON list, no shell) in `service`'s container, with `credentials` mapping environment variables to this environment's credential IDs. Values are injected by the manager through a private one-shot file, never shown to the agent, and masked in the returned output (exit code plus output; 10-minute limit). |
 | `propose_configuration_change` | Publish a frozen release-setup proposal (`source_event_id`, `operations`); see Agent-led setup. No `application` parameter. |
 | `approve_configuration_change` | Execute the configuration proposal referenced by the owner's `approval_event_id`. |
 | `plan_deployment` | Freeze a plan with `operation` (`deploy`, `restart`, or `rollback`), `release` and optional `profile` for deploy, and optional `service` for restart. Does not execute changes. |
@@ -164,6 +165,25 @@ Every tool takes an `application`; `environment` defaults to `production`, excep
 The public `plan_deployment` MCP tool and the local CLI plan request both use `operation`. The MCP facade translates this to `action_type` internally; agents do not need to construct internal HTTP requests.
 
 Agents cannot change anything directly: application specifications, profiles, generated credentials, dependency attachments, CI import settings, grants and policies take effect only through an owner-approved frozen proposal. Agents never handle supplied secret values and cannot register releases by hand; releases come from the verified CI importer or the operator. Deployment access does not give an ordinary agent COA's general community-management tools.
+
+### Technical owner (trusted installations)
+
+`configure_release_agent` accepts `technical_owner: true`. The setting is stored
+with the agent, so its rules are regenerated the same way after every manager
+start, upgrade or configuration change. A technical-owner agent owns all
+technical work in its granted environments, including database schema changes:
+its instructions and release runbook drop the "no migrations" rule and tell it
+to run the application's idempotent schema commands itself with
+`run_service_command` (staging first, then production before the owner approves
+the production deployment). Destructive changes still need an explicit owner
+instruction, and the agent still never uses Docker or handles secret values.
+Store the schema-owner password once as an environment credential, for example
+`mysql-owner-password`, and the agent passes it by ID. The operator can set it
+directly:
+
+```json
+{"action":"release-agent","agent":"cody","technical_owner":true}
+```
 
 ## Deployment and recovery
 

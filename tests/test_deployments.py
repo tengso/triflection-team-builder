@@ -539,3 +539,56 @@ def test_deployment_skill_id_is_reserved(manager):
             manager,
             {"id": "team-deployments", "kind": "skill", "name": "x", "content": "y"},
         )
+
+
+def test_technical_owner_runs_commands_with_injected_masked_credentials(manager):
+    d = setup(manager)
+    d.profiles.credential(
+        "portal", "production", "owner-password", value="s3cr3t-owner-pw"
+    )
+    agent = manager.resource("coa", "agent")
+    agent["deployments"] = ["portal/production"]
+    manager.save_agent(agent)
+    copied, commands = {}, []
+
+    def put_file(name, directory, filename, content):
+        copied[directory + "/" + filename] = json.loads(content)
+
+    def exec_output(name, command, timeout=60):
+        commands.append(command)
+        if command[0] == "rm":
+            return 0, ""
+        spec = copied[command[-1]]
+        return 0, "connected with " + spec["env"]["DB_PASSWORD"] + "\nDDL applied."
+
+    manager.docker.put_file = put_file
+    manager.docker.exec_output = exec_output
+    request = {
+        "agent": "coa",
+        "action": "run-command",
+        "application": "portal",
+        "environment": "production",
+        "service": "ui",
+        "command": ["python", "-m", "app.schema"],
+        "credentials": {"DB_PASSWORD": "owner-password"},
+    }
+    auth = "Bearer " + token(manager.secrets, "coa")
+    with pytest.raises(ValueError, match="technical-owner"):
+        handle(manager, "/deployments", auth, dict(request))
+    agent["technical_owner"] = True
+    manager.save_agent(agent)
+    result = handle(manager, "/deployments", auth, dict(request))
+    assert result["exit_code"] == 0 and "DDL applied." in result["output"]
+    assert "s3cr3t-owner-pw" not in json.dumps(result)
+    # The secret never appears in the exec command line; it went in a file.
+    assert not any("s3cr3t-owner-pw" in json.dumps(c) for c in commands)
+    assert next(iter(copied.values()))["command"] == ["python", "-m", "app.schema"]
+    for bad in (
+        {"environment": "staging"},
+        {"service": "other"},
+        {"credentials": {"DB_PASSWORD": "missing"}},
+        {"credentials": {"bad name": "owner-password"}},
+        {"command": "python -m app.schema"},
+    ):
+        with pytest.raises(ValueError):
+            handle(manager, "/deployments", auth, {**request, **bad})

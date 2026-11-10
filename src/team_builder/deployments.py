@@ -10,6 +10,7 @@ import json
 import re
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -830,6 +831,102 @@ class Deployments:
             reverse=True,
         )
         return redactor
+
+    def run_command(
+        self, agent, application, environment, service, command, credentials=None
+    ):
+        """Technical-owner agent: run a command in its granted application container.
+
+        Named credentials of this environment are injected as variables; the agent
+        never sees their values and the output is masked like redacted logs.
+        """
+        if not self.manager.resource(agent, "agent").get("technical_owner"):
+            raise ValueError(
+                "Only a technical-owner agent may run commands in application containers"
+            )
+        app = self.get("app/" + self.key(application, environment))
+        if service not in {s["id"] for s in app["spec"]["services"]}:
+            raise ValueError("Unknown application service")
+        if (
+            not isinstance(command, list)
+            or not 1 <= len(command) <= 64
+            or not all(isinstance(a, str) and len(a) <= 4096 for a in command)
+        ):
+            raise ValueError("command must be a JSON list of 1-64 strings")
+        credentials = credentials or {}
+        if not isinstance(credentials, dict) or len(credentials) > 16:
+            raise ValueError("credentials maps variable names to credential IDs")
+        values = {}
+        for variable, ref in credentials.items():
+            if not isinstance(variable, str) or not re.fullmatch(
+                r"[A-Z_][A-Z0-9_]{0,63}", variable
+            ):
+                raise ValueError("Invalid environment variable name")
+            path = (
+                self.profiles.directory(application, environment)
+                / "credentials"
+                / (str(ref) + ".json")
+            )
+            if (
+                not re.fullmatch(r"[a-z][a-z0-9-]{0,47}", str(ref))
+                or not path.is_file()
+            ):
+                raise ValueError("Unknown credential for this environment: " + str(ref))
+            version = json.loads(path.read_text())["version"]
+            values[variable] = self.profiles.value(
+                application, environment, ref, version
+            )
+        redactor = self.redactor(app)
+        redactor.values = sorted(
+            set(redactor.values) | {v for v in values.values() if len(v) >= 4},
+            key=len,
+            reverse=True,
+        )
+        # Secrets travel in a private one-shot file that the wrapper deletes before
+        # running the command, never in the exec command line or Docker metadata.
+        container = self.name(app, service)
+        spec = "team-builder-run-" + uuid.uuid4().hex + ".json"
+        self.manager.docker.put_file(
+            container,
+            "/tmp",
+            spec,
+            json.dumps({"command": command, "env": values}).encode(),
+        )
+        script = """import json,os,subprocess,sys
+path=sys.argv[1]
+with open(path) as f: spec=json.load(f)
+os.unlink(path)
+env={**os.environ,**spec["env"]}
+try:
+    p=subprocess.run(spec["command"],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=600)
+except FileNotFoundError as e:
+    print(e); raise SystemExit(127)
+except subprocess.TimeoutExpired:
+    print("command timed out after 600 seconds"); raise SystemExit(124)
+sys.stdout.buffer.write(p.stdout[-60000:])
+raise SystemExit(p.returncode)
+"""
+        try:
+            code, output = self.manager.docker.exec_output(
+                container, ["python", "-c", script, "/tmp/" + spec], timeout=660
+            )
+        finally:
+            # Remove the file if the wrapper never ran (it already deleted it otherwise).
+            try:
+                self.manager.docker.exec_output(
+                    container, ["rm", "-f", "/tmp/" + spec], timeout=30
+                )
+            except Exception:  # noqa: BLE001, S110 -- best effort; the wrapper unlinks first
+                pass
+        return {
+            "application": application,
+            "environment": environment,
+            "service": service,
+            "exit_code": code,
+            "output": redactor.text(
+                output.decode(errors="replace") if isinstance(output, bytes) else output
+            )[-20000:],
+        }
 
     def diagnostics(self, application, environment):
         """Redacted output is allowed in staging; production follows the release policy."""

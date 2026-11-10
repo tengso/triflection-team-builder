@@ -228,8 +228,20 @@ def _finish(config, secrets, agent, document, harness_document, env, soul):
         soul += (
             f"\n\nRelease operations: you are a release agent. Use {tools}; your application/environment scope: "
             + scope
-            + ". Follow the team-managed-team-release-runbook skill. You do the technical release work: propose application registration, profiles, generated credentials, dependency attachments, access grants, CI import settings and release policies with propose_configuration_change, and after the owner replies approve, execute them with approve_configuration_change. Under an enabled release policy the manager deploys, verifies UAT and promotes automatically: investigate blocked runs with inspect_release_automation, masked check output and get_service_logs(detail=redacted), fix causes (code fixes arrive as new CI releases), confirm with verify_release_checks, then retry_automatic_release; the production agent may rollback_production when the policy allows. Without a policy, execute only an owner-approved frozen proposal or a specific signed owner instruction. Queueing is not success: poll until terminal. Never request or accept secret values in chat: tell the owner which credential is missing and the exact host command. Never use your terminal to deploy, change databases or reach Docker; no migrations. TCP preflight proves reachability only, not database authorization or schema correctness."
+            + ". Follow the team-managed-team-release-runbook skill. You do the technical release work: propose application registration, profiles, generated credentials, dependency attachments, access grants, CI import settings and release policies with propose_configuration_change, and after the owner replies approve, execute them with approve_configuration_change. Under an enabled release policy the manager deploys, verifies UAT and promotes automatically: investigate blocked runs with inspect_release_automation, masked check output and get_service_logs(detail=redacted), fix causes (code fixes arrive as new CI releases), confirm with verify_release_checks, then retry_automatic_release; the production agent may rollback_production when the policy allows. Without a policy, execute only an owner-approved frozen proposal or a specific signed owner instruction. Queueing is not success: poll until terminal. Never request or accept secret values in chat: tell the owner which credential is missing and the exact host command. TCP preflight proves reachability only, not database authorization or schema correctness."
         )
+        if agent.get("technical_owner"):
+            soul += (
+                "\n\nTechnical ownership: you own all technical work in your assigned environments, "
+                "including database schema changes. Run the application's idempotent schema commands "
+                "yourself with run_service_command in the environment's service container, passing "
+                "credentials by ID; staging first, then production before the owner approves the "
+                "production deployment. Do not ask the owner to run commands for you. Destructive "
+                "data or schema changes need an explicit owner instruction. Never use Docker from your "
+                "terminal and never print or request secret values."
+            )
+        else:
+            soul += " Never use your terminal to deploy, change databases or reach Docker; no migrations."
     if agent.get("soul"):
         soul += "\n\nPersonality and communication:\n" + agent["soul"]
     mcp_servers.update(agent.get("resolved_mcp", {}))
@@ -395,14 +407,21 @@ def _write_agent_files(root, config, secrets, agent):
         private_write(
             managed / "deployment-token", token(secrets, agent["id"]).encode()
         )
-        skills[DEPLOYMENT_SKILL] = skill(agent.get("deployments", []))
+        skills[DEPLOYMENT_SKILL] = skill(
+            agent.get("deployments", []),
+            technical_owner=bool(agent.get("technical_owner")),
+        )
     else:
         (managed / "deployment_cli.py").unlink(missing_ok=True)
         (managed / "deployment-token").unlink(missing_ok=True)
     if release_agent(agent):
         from .agent_deployments import runbook
 
-        skills[RUNBOOK_SKILL] = runbook(agent.get("deployments", []), cli=cli_agent)
+        skills[RUNBOOK_SKILL] = runbook(
+            agent.get("deployments", []),
+            cli=cli_agent,
+            technical_owner=bool(agent.get("technical_owner")),
+        )
     if agent["id"] == "coa":
         # Ship the current typed MCP facade in the read-only managed bundle so
         # manager-only upgrades can expose new tools without replacing workers.

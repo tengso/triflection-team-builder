@@ -138,6 +138,27 @@ class Docker:
         status = self.call("GET", f"/exec/{created['Id']}/json")
         return status.get("ExitCode"), output
 
+    def put_file(self, name, directory, filename, content):
+        """Copy one private file (mode 0400) into a managed container."""
+        import io
+        import tarfile
+
+        if not self.inspect(name):
+            raise RuntimeError("Managed container is missing")
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as archive:
+            info = tarfile.TarInfo(filename)
+            info.size, info.mode = len(content), 0o400
+            archive.addfile(info, io.BytesIO(content))
+        result = self.client.put(
+            f"/v1.45/containers/{quote(name, safe='')}/archive",
+            params={"path": directory},
+            content=buffer.getvalue(),
+            headers={"Content-Type": "application/x-tar"},
+        )
+        if result.status_code != 200:
+            raise RuntimeError("Copying into the managed container failed")
+
     def ready(self, name):
         state = (self.inspect(name) or {}).get("State", {})
         return (

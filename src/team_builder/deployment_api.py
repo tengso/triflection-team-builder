@@ -57,6 +57,9 @@ def handle(manager, path, authorization, body):
             "release-sync-config": lambda **kw: service.apply_change(
                 {"action": "configure_release_sync", **kw}
             ),
+            "release-agent": lambda **kw: service.apply_change(
+                {"action": "configure_release_agent", **kw}
+            ),
         }
         if action not in methods:
             raise ValueError("Unknown operator action")
@@ -113,6 +116,8 @@ def handle(manager, path, authorization, body):
         return service.automation.retry(application, environment, agent)
     if action == "automation-verify":
         return service.automation.verify(application, environment, agent)
+    if action == "run-command":
+        return service.run_command(agent, application, environment, **body)
     if action == "automation-rollback":
         if environment != "production":
             raise ValueError("Automatic rollback applies to production")

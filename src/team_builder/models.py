@@ -259,6 +259,9 @@ class ConfigureReleaseAgent(Operation):
     action: Literal["configure_release_agent"]
     agent: Slug
     enabled: bool = True
+    # Trusted installations: the agent owns all technical work in its granted
+    # environments, including schema changes run inside application containers.
+    technical_owner: bool | None = None
 
 
 ManagementOperation = Annotated[

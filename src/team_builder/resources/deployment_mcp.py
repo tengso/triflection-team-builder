@@ -184,6 +184,25 @@ def rollback_production(application: str, environment: str = "production") -> di
 
 
 @server.tool()
+def run_service_command(
+    application: str,
+    service: str,
+    command: list[str],
+    environment: str = "production",
+    credentials: dict[str, str] | None = None,
+) -> dict:
+    """Technical owner only: run a command (JSON list, no shell) inside a service container of an assigned application, e.g. the app's schema migration. credentials maps environment variable names to this environment's credential IDs; values are injected by the manager and masked in the output, which is returned with the exit code (10-minute limit)."""
+    return call(
+        "run-command",
+        application,
+        environment,
+        service=service,
+        command=command,
+        credentials=credentials or {},
+    )
+
+
+@server.tool()
 def propose_configuration_change(source_event_id: str, operations: list[dict]) -> dict:
     """Publish a frozen release-setup proposal in the source thread for owner approval. Operations: register_application{spec}, register_profile{application,environment,profile}, generate_credential{application,environment,id,rotate}, attach_dependency{application,environment,container,alias}, configure_release_sync{application,repository,credential,workflow,branch,environments,services,enabled}, configure_release_policy{policy,expected_version} (whole-policy replacement: copy every field from the live policy; expected_version is policy.version from inspect_release_automation, "" if none), configure_deployment_access{agent,application,environment,allowed}. Every operation object needs an "action" key; the release runbook skill shows the exact JSON shape. Errors name the failing field. Never include secret values."""
     return post(

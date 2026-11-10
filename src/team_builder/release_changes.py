@@ -167,24 +167,32 @@ def apply_change(service, op):
         assert_current_policies(service, [op])
         return service.automation.configure(op["policy"])
     if action == "configure_release_agent":
-        return release_agent(service, op["agent"], op.get("enabled", True))
+        return release_agent(
+            service, op["agent"], op.get("enabled", True), op.get("technical_owner")
+        )
     raise ValueError("Unknown release change")
 
 
-def release_agent(service, agent_id, enabled):
+def release_agent(service, agent_id, enabled, technical_owner=None):
     manager = service.manager
     with manager.lock:
         item = manager.resource(agent_id, "agent")
         if item["state"] == "archived":
             raise ValueError("Agent is archived")
         item["release_agent"] = bool(enabled)
+        if technical_owner is not None:
+            item["technical_owner"] = bool(technical_owner) and bool(enabled)
         manager.save_agent(item)
         from .runtime import python_for, write_agent_files
 
         write_agent_files(manager.root, manager.config, manager.secrets, item)
         if item["state"] == "running":
             manager.docker.restart(manager.name(item), python_for(item))
-    return {"agent": agent_id, "release_agent": bool(enabled)}
+    return {
+        "agent": agent_id,
+        "release_agent": bool(enabled),
+        "technical_owner": bool(item.get("technical_owner")),
+    }
 
 
 def connect(service, network, container, alias):
