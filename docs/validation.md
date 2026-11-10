@@ -657,3 +657,5 @@ Covered by unit tests (non-owner refused; scope, service, credential and
 command validation; secret absent from exec arguments and output; rule text
 switches and survives regeneration). The file copy was checked against the HTI
 Docker engine.
+
+GitHub Actions run `42800212667` passed for v0.8.16 (source `c8af964a737588582a74792c49202cd71297101f`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.16` tags were promoted.
