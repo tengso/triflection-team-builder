@@ -689,3 +689,5 @@ with the agent's own credentials, Hermes's image source resolver accepts local
 paths, and the team model (`kimi-k3` on DashScope) answers an image prompt.
 Covered by the runtime golden snapshot (instruction text and managed bundle
 hashes).
+
+GitHub Actions run `42975591854` passed for v0.8.18 (source `f9099b42209f898f38340ffe27193b31d4815fe2`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.18` tags were promoted.
