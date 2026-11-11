@@ -673,3 +673,5 @@ as JSON. Covered by unit tests (env reaches the one-shot file, invalid or
 shadowing env refused, CLI and MCP send identical requests, rule text). The same
 `MYSQL_USER=app_owner` override was confirmed on the HTI staging container
 through Cody's own tool, connecting as `app_owner`.
+
+GitHub Actions run `42939416510` passed for v0.8.17 (source `221f05e7ea856e5ca42a82f28506388c5c989760`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.17` tags were promoted.
