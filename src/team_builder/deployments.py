@@ -833,12 +833,20 @@ class Deployments:
         return redactor
 
     def run_command(
-        self, agent, application, environment, service, command, credentials=None
+        self,
+        agent,
+        application,
+        environment,
+        service,
+        command,
+        credentials=None,
+        env=None,
     ):
         """Technical-owner agent: run a command in its granted application container.
 
         Named credentials of this environment are injected as variables; the agent
-        never sees their values and the output is masked like redacted logs.
+        never sees their values and the output is masked like redacted logs. ``env``
+        sets plain, non-secret variables (such as a schema-owner user name).
         """
         if not self.manager.resource(agent, "agent").get("technical_owner"):
             raise ValueError(
@@ -853,15 +861,24 @@ class Deployments:
             or not all(isinstance(a, str) and len(a) <= 4096 for a in command)
         ):
             raise ValueError("command must be a JSON list of 1-64 strings")
-        credentials = credentials or {}
+        credentials, env = credentials or {}, env or {}
         if not isinstance(credentials, dict) or len(credentials) > 16:
             raise ValueError("credentials maps variable names to credential IDs")
-        values = {}
-        for variable, ref in credentials.items():
+        if (
+            not isinstance(env, dict)
+            or len(env) > 16
+            or not all(isinstance(v, str) and len(v) <= 4096 for v in env.values())
+        ):
+            raise ValueError("env maps variable names to plain string values")
+        if set(env) & set(credentials):
+            raise ValueError("A variable cannot be set by both env and credentials")
+        for variable in [*credentials, *env]:
             if not isinstance(variable, str) or not re.fullmatch(
                 r"[A-Z_][A-Z0-9_]{0,63}", variable
             ):
                 raise ValueError("Invalid environment variable name")
+        values = {}
+        for variable, ref in credentials.items():
             path = (
                 self.profiles.directory(application, environment)
                 / "credentials"
@@ -890,7 +907,7 @@ class Deployments:
             container,
             "/tmp",
             spec,
-            json.dumps({"command": command, "env": values}).encode(),
+            json.dumps({"command": command, "env": {**env, **values}}).encode(),
         )
         script = """import json,os,subprocess,sys
 path=sys.argv[1]

@@ -150,7 +150,7 @@ Every tool takes an `application`; `environment` defaults to `production`, excep
 | `get_service_logs` | Read diagnostics for `service`: `detail="summary"` (recognized entries) or `detail="redacted"` (last 200 lines, installation and environment secrets masked; staging, and production when the release policy allows). |
 | `verify_release_checks` | Run the release policy's acceptance checks now, at most once a minute. Does not deploy or spend a retry; failed checks include masked output. |
 | `rollback_production` | Production agent only: restore the previous production release after a blocked automatic run when the policy's `production_rollback` is `agent` (or `automatic`). Images only. |
-| `run_service_command` | Technical owner only (see below): run `command` (a JSON list, no shell) in `service`'s container, with `credentials` mapping environment variables to this environment's credential IDs. Values are injected by the manager through a private one-shot file, never shown to the agent, and masked in the returned output (exit code plus output; 10-minute limit). |
+| `run_service_command` | Technical owner only (see below): run `command` (a JSON list, no shell) in `service`'s container, with optional `env` (plain, non-secret variables such as `{"MYSQL_USER": "app_owner"}`) and `credentials` mapping environment variables to this environment's credential IDs. Credential values are injected by the manager through a private one-shot file, never shown to the agent, and masked in the returned output (exit code plus output; 10-minute limit). |
 | `propose_configuration_change` | Publish a frozen release-setup proposal (`source_event_id`, `operations`); see Agent-led setup. No `application` parameter. |
 | `approve_configuration_change` | Execute the configuration proposal referenced by the owner's `approval_event_id`. |
 | `plan_deployment` | Freeze a plan with `operation` (`deploy`, `restart`, or `rollback`), `release` and optional `profile` for deploy, and optional `service` for restart. Does not execute changes. |
@@ -178,8 +178,17 @@ to run the application's idempotent schema commands itself with
 the production deployment). Destructive changes still need an explicit owner
 instruction, and the agent still never uses Docker or handles secret values.
 Store the schema-owner password once as an environment credential, for example
-`mysql-owner-password`, and the agent passes it by ID. The operator can set it
-directly:
+`mysql-owner-password`, and the agent passes it by ID; non-secret values such as
+the schema-owner user name go in `env`, so no credential is needed for them:
+
+```json
+{"application":"hti-research-admin","environment":"staging","service":"api",
+ "command":["python","-m","modules.research.crm.db.schema"],
+ "env":{"MYSQL_USER":"app_owner"},
+ "credentials":{"MYSQL_PASSWORD":"mysql-owner-password"}}
+```
+
+The operator can enable the setting directly:
 
 ```json
 {"action":"release-agent","agent":"cody","technical_owner":true}

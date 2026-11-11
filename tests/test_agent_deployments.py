@@ -70,6 +70,33 @@ def test_cli_mirrors_mcp_wire_requests(mcp_module, monkeypatch, tmp_path, capsys
     )
     mcp_module.plan_deployment("portal", operation="rollback", environment="staging")
     assert seen[0][1] == mcp_bodies[0]
+    # Optional JSON parameters (env, credentials) arrive as objects, not strings.
+    argv = [
+        "run-command",
+        "--application",
+        "portal",
+        "--service",
+        "api",
+        "--command",
+        '["python", "-m", "app.schema"]',
+        "--environment",
+        "staging",
+        "--credentials",
+        '{"DB_PASSWORD": "owner-password"}',
+        "--env",
+        '{"DB_USER": "owner"}',
+    ]
+    assert main(argv, transport=httpx.MockTransport(handler)) == 0
+    mcp_module.run_service_command(
+        "portal",
+        "api",
+        ["python", "-m", "app.schema"],
+        environment="staging",
+        credentials={"DB_PASSWORD": "owner-password"},
+        env={"DB_USER": "owner"},
+    )
+    assert seen[1][1] == mcp_bodies[1]
+    assert seen[1][1]["env"] == {"DB_USER": "owner"}
 
 
 def test_cli_reports_rejections_without_output(monkeypatch, tmp_path, capsys):

@@ -583,12 +583,23 @@ def test_technical_owner_runs_commands_with_injected_masked_credentials(manager)
     # The secret never appears in the exec command line; it went in a file.
     assert not any("s3cr3t-owner-pw" in json.dumps(c) for c in commands)
     assert next(iter(copied.values()))["command"] == ["python", "-m", "app.schema"]
+    # Plain, non-secret variables (the schema-owner user name) go through env.
+    copied.clear()
+    handle(manager, "/deployments", auth, {**request, "env": {"DB_USER": "owner"}})
+    assert next(iter(copied.values()))["env"] == {
+        "DB_USER": "owner",
+        "DB_PASSWORD": "s3cr3t-owner-pw",
+    }
     for bad in (
         {"environment": "staging"},
         {"service": "other"},
         {"credentials": {"DB_PASSWORD": "missing"}},
         {"credentials": {"bad name": "owner-password"}},
         {"command": "python -m app.schema"},
+        {"env": {"bad name": "x"}},
+        {"env": {"DB_USER": 1}},
+        {"env": {"DB_PASSWORD": "shadow"}},
+        {"env": ["DB_USER=owner"]},
     ):
         with pytest.raises(ValueError):
             handle(manager, "/deployments", auth, {**request, **bad})

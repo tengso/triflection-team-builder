@@ -234,8 +234,9 @@ def _finish(config, secrets, agent, document, harness_document, env, soul):
             soul += (
                 "\n\nTechnical ownership: you own all technical work in your assigned environments, "
                 "including database schema changes. Run the application's idempotent schema commands "
-                "yourself with run_service_command in the environment's service container, passing "
-                "credentials by ID; staging first, then production before the owner approves the "
+                "yourself with run_service_command in the environment's service container, setting "
+                "non-secret values such as the schema-owner user name in env and passing only secrets "
+                "by credential ID in credentials; staging first, then production before the owner approves the "
                 "production deployment. Do not ask the owner to run commands for you. Destructive "
                 "data or schema changes need an explicit owner instruction. Never use Docker from your "
                 "terminal and never print or request secret values."

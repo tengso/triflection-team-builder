@@ -190,8 +190,9 @@ def run_service_command(
     command: list[str],
     environment: str = "production",
     credentials: dict[str, str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> dict:
-    """Technical owner only: run a command (JSON list, no shell) inside a service container of an assigned application, e.g. the app's schema migration. credentials maps environment variable names to this environment's credential IDs; values are injected by the manager and masked in the output, which is returned with the exit code (10-minute limit)."""
+    """Technical owner only: run a command (JSON list, no shell) inside a service container of an assigned application, e.g. the app's schema migration. env sets plain non-secret variables, e.g. {"MYSQL_USER": "app_owner"}, overriding the container's values. credentials maps environment variable names to this environment's credential IDs, e.g. {"MYSQL_PASSWORD": "mysql-owner-password"}; values are injected by the manager and masked in the output, which is returned with the exit code (10-minute limit)."""
     return call(
         "run-command",
         application,
@@ -199,6 +200,7 @@ def run_service_command(
         service=service,
         command=command,
         credentials=credentials or {},
+        env=env or {},
     )
 
 

@@ -148,8 +148,9 @@ TOOLS = {
             ("command", REQUIRED),
             ENVIRONMENT,
             ("credentials", None),
+            ("env", None),
         ],
-        "Technical owner only: run a command (JSON list, no shell) inside a service container of an assigned application, e.g. the app's schema migration. credentials maps environment variable names to this environment's credential IDs; values are injected by the manager and masked in the output, which is returned with the exit code (10-minute limit).",
+        'Technical owner only: run a command (JSON list, no shell) inside a service container of an assigned application, e.g. the app\'s schema migration. --env sets plain non-secret variables as JSON, e.g. {"MYSQL_USER": "app_owner"}. --credentials maps environment variable names to this environment\'s credential IDs as JSON; values are injected by the manager and masked in the output, which is returned with the exit code (10-minute limit).',
         {},
     ),
     "propose_configuration_change": (
@@ -165,7 +166,7 @@ TOOLS = {
         {},
     ),
 }
-JSON_PARAMS = {"operations", "command", "credentials"}
+JSON_PARAMS = {"operations", "command", "credentials", "env"}
 
 
 COMMANDS = {
@@ -212,7 +213,9 @@ def parser():
             if default is REQUIRED:
                 command.add_argument(option(name), dest=name, required=True, type=kind)
             else:
-                command.add_argument(option(name), dest=name, default=default)
+                command.add_argument(
+                    option(name), dest=name, default=default, type=kind
+                )
     return root
 
 
@@ -511,10 +514,15 @@ TECHNICAL_OWNER_RULES = """- You are the technical owner of your assigned enviro
   the owner to run commands for you.
 - Schema changes: find the application's idempotent schema commands, run them
   with `run_service_command` in the environment's service container (usually
-  the API service), passing the schema-owner credential by ID through
-  `credentials` (for HTI: `{"MYSQL_USER": "...", "MYSQL_PASSWORD": "mysql-owner-password"}`
-  as documented by the app). Run staging first, verify, then production before
-  the owner approves the production deployment. Report what you ran and the output.
+  the API service). Put non-secret settings such as the schema-owner user name
+  in `env` and pass only secrets by credential ID in `credentials`, e.g.
+  `"env": {"MYSQL_USER": "app_owner"}, "credentials": {"MYSQL_PASSWORD": "mysql-owner-password"}`,
+  with `"command": ["python", "-m", "<schema module>"]` (the container's working
+  directory and interpreter are already the app's; there is no shell). A user
+  name is not a secret: never ask the owner to store one as a credential. Run
+  staging first, verify, then production (before the owner approves the
+  production deployment, or right after if the new schema commands only exist in
+  the new release). Report what you ran and the output.
 - Destructive changes (dropping or rewriting tables, columns or data) need an
   explicit owner instruction first.
 - Never use Docker from your terminal; deploy only through the release tools.

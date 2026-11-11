@@ -659,3 +659,17 @@ switches and survives regeneration). The file copy was checked against the HTI
 Docker engine.
 
 GitHub Actions run `42800212667` passed for v0.8.16 (source `c8af964a737588582a74792c49202cd71297101f`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.16` tags were promoted.
+
+## v0.8.17 — Plain variables for service commands
+
+On HTI, Cody's first production schema run under v0.8.16 stopped because the
+runbook told it to pass the schema-owner user name through `credentials`, and no
+credential held a user name, so the profile's `MYSQL_USER=app_runtime` stayed in
+place. `run_service_command` now accepts `env` for plain, non-secret variables
+(validated names, string values, and never the same variable as a credential),
+and the technical-owner rules show the exact `env` plus `credentials` form. The
+pi deployment CLI now parses optional JSON parameters (`--credentials`, `--env`)
+as JSON. Covered by unit tests (env reaches the one-shot file, invalid or
+shadowing env refused, CLI and MCP send identical requests, rule text). The same
+`MYSQL_USER=app_owner` override was confirmed on the HTI staging container
+through Cody's own tool, connecting as `app_owner`.

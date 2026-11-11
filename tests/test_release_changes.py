@@ -607,6 +607,8 @@ def test_technical_owner_setting_rewrites_rules_and_survives_regeneration(
     soul = (managed / "SOUL.md").read_text()
     assert "no migrations" not in runbook and "no migrations" not in soul
     assert "run_service_command" in runbook and "Technical ownership" in soul
+    # User names are plain env values, never a credential request to the owner.
+    assert '"env": {"MYSQL_USER"' in runbook and "user name in env" in soul
     # Disabling the release agent also drops technical ownership.
     manager.apply(
         {
