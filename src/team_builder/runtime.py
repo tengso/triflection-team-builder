@@ -290,6 +290,15 @@ def _finish(config, secrets, agent, document, harness_document, env, soul):
         "container, so act carefully and never run destructive commands without an "
         "explicit owner instruction."
     )
+    soul += (
+        "\n\nAttachments: images and files in messages are relay media, listed in imeta "
+        "tags and linked as .../media/<sha256>.<ext>. The link's host is the relay's "
+        "public address, which your container cannot reach, and reads need signed "
+        "authorization, so never fetch it with curl or pass the URL to an image tool. "
+        "Download it first with: buzz media get <sha256>.<ext> -o /work/<name>.<ext> "
+        "(the hash form, not the full URL), then open the local file, for example with "
+        "your image or vision tool on /work/<name>.<ext>."
+    )
     return document, harness_document, env, soul
 
 

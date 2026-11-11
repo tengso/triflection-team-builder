@@ -675,3 +675,17 @@ shadowing env refused, CLI and MCP send identical requests, rule text). The same
 through Cody's own tool, connecting as `app_owner`.
 
 GitHub Actions run `42939416510` passed for v0.8.17 (source `221f05e7ea856e5ca42a82f28506388c5c989760`): tests, all five image builds, and the clean-runner bootstrap including agent-led setup, before the `0.8.17` tags were promoted.
+
+## v0.8.18 — Agents read message attachments
+
+On HTI, Cody could not see a screenshot posted by the owner: the image link names
+the relay's advertised address (`http://127.0.0.1:3100/media/…`), which is the
+agent container itself, and Hermes's vision tool refuses private addresses. Every
+agent's generated instructions now say to download relay media first with
+`buzz media get <sha256>.<ext> -o /work/…` (the hash form; the CLI refuses to
+sign for a non-relay origin) and to open the local file. Checked on the HTI host
+in Cody's container: the owner's 486,863-byte screenshot downloads as a valid PNG
+with the agent's own credentials, Hermes's image source resolver accepts local
+paths, and the team model (`kimi-k3` on DashScope) answers an image prompt.
+Covered by the runtime golden snapshot (instruction text and managed bundle
+hashes).
