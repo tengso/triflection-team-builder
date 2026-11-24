@@ -87,6 +87,10 @@ and keep working when a workstation's tunnel closes. The server can publish only
 on loopback because agents no longer depend on its published port. Mission Control
 uses a separate listener and needs its own tunnel if enabled.
 
+To serve the [buzz-app](https://github.com/tengso/buzz-app) browser build to users
+outside the firewall through a path-prefixed login gateway instead of tunnels, follow
+[docs/runbooks/web-frontend-behind-gateway.md](docs/runbooks/web-frontend-behind-gateway.md).
+
 Automation also supports `TEAM_BUILDER_INTERNAL_URL`. Omitting `--internal-url`
 preserves the original shared-URL behavior and validation. Existing installations
 resume with their stored addresses; `init` does not change an existing community's

@@ -125,6 +125,10 @@ team-builder init ... --pull-harnesses pi,codex,devin
 team-builder init ... --dashboard
 ```
 
+For a browser front end ([buzz-app](https://github.com/tengso/buzz-app)) reached
+from outside the firewall through a login gateway, see the runbook
+[web-frontend-behind-gateway.md](runbooks/web-frontend-behind-gateway.md).
+
 Each value flag also reads a matching `TEAM_BUILDER_*` environment variable
 (for example `TEAM_BUILDER_STATE_DIR`, `TEAM_BUILDER_MODEL`). Private keys are
 never command-line values. Re-running `init` on an existing state directory
